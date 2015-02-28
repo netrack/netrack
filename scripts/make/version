@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+set -e
+
+# Extract revision from git tags
+REVISION=$(git --no-pager log --no-color -1 --pretty=oneline | cut -c1-5)
+
+# Fetch "dirty" flag
+DIRTY=$(git describe --dirty --tags --always 2>/dev/null | perl -ne 'print /(-dirty)/g')
+
+echo "${REVISION}${DIRTY}"

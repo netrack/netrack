@@ -22,3 +22,12 @@ _testmain.go
 *.exe
 *.test
 *.prof
+
+# Vim files
+*.swp
+
+# Gom bundle
+_vendor
+
+# Bundles dir
+bundles

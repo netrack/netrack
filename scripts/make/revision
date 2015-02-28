@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+set -e
+
+DEFAULT_VERSION='0.0.1'
+GIT_TAGS=$(git for-each-ref --format='%(*committerdate:raw)%(committerdate:raw) %(refname)' refs/tags)
+LIST_VERSIONS=( $( echo "${GIT_TAGS}" | sort -nr | awk '{print $3}' | sed -e 's/refs\/tags\///g') )
+
+if [ ${#LIST_VERSIONS[@]} -eq 0 ]; then
+    echo "${DEFAULT_VERSION}"
+else
+    echo "${LIST_VERSIONS}" | sed -e 's/^v//g'
+fi

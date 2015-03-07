@@ -1,1 +1,13 @@
+# TOML parser and encoder for Go with reflection
+gom 'github.com/burntsushi/toml'
+
+# OpenFlow library for Go
 gom 'github.com/netrack/openflow'
+
+# Package icmp provides basic functions for the manipulation of messages
+# used in the Internet Control Message Protocols, ICMPv4 and ICMPv6.
+gom 'golang.org/x/net/icmp'
+
+# Package ipv6 implements IP-level socket options for the
+# Internet Protocol version 6.
+gom 'golang.org/x/net/ipv6'

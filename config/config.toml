@@ -1,0 +1,15 @@
+# Netrack configuration file
+#
+
+# Bind server to specific address
+host = "0.0.0.0"
+# Bind server to specific port
+port = 6699
+
+[neighbor]
+advertisement_group = "ff02::a"
+advertisement_zones = ["eth0"]
+
+[metadata]
+metadata_server = "127.0.0.1"
+metadata_port = "8775"

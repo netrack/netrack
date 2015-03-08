@@ -1,15 +1,21 @@
 # Netrack configuration file
 #
+instance_id = "2ba5e6cc-c5bb-11e4-a23c-001fd08d7e6c"
 
-# Bind server to specific address
-host = "0.0.0.0"
-# Bind server to specific port
-port = 6699
+[db]
+server_address = "127.0.0.1"
+server_port = 6379
+server_password = "passw0rd"
 
 [neighbor]
 advertisement_group = "ff02::a"
 advertisement_zones = ["eth0"]
+solicitation_interval = "30s"
 
 [metadata]
 metadata_server = "127.0.0.1"
 metadata_port = "8775"
+
+[flowvisor]
+controller_address = "0.0.0.0"
+controller_port = 6633

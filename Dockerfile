@@ -10,7 +10,7 @@ FROM ubuntu:14.04
 MAINTAINER Yasha Bubnov <girokompass@gmail.com> (@yashkin)
 
 RUN sudo apt-get update
-RUN sudo apt-get install -y git curl --no-install-recommends
+RUN sudo apt-get install -y git curl redis-server --no-install-recommends
 
 RUN git config --global user.email 'netrack-dummy@example.com'
 

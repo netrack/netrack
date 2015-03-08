@@ -2,8 +2,11 @@ package flowvisor
 
 import (
 	"net"
+
+	of "github.com/netrack/openflow"
 )
 
 type Datapath struct {
-	conn net.Conn
+	ID   string
+	conn *of.Conn
 }

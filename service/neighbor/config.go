@@ -1,6 +1,7 @@
 package neighbor
 
 type Config struct {
-	AdvertisementGroup string   `toml:"advertisement_group"`
-	AdvertisementZones []string `toml:"advertisement_zones"`
+	Group    string   `toml:"advertisement_group"`
+	Zones    []string `toml:"advertisement_zones"`
+	Interval string   `toml:"solicitation_interval"`
 }

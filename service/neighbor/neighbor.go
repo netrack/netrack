@@ -55,8 +55,6 @@ type neighbor struct {
 	// list of parsed IPv6 addresses
 	ipaddrs []*net.IPAddr
 
-	neigh map[string]bool
-
 	stopCh  chan bool
 	neighCh chan string
 }
@@ -65,16 +63,16 @@ func New(config *Config) (*neighbor, error) {
 	node := &neighbor{
 		neigh:   make(map[string]bool),
 		neighCh: make(chan string),
-		stopCh:  make(chan bool, len(config.AdvertisementZones)+1),
+		stopCh:  make(chan bool, len(config.Zones)+1),
 	}
 
 	raddr := net.ParseIP(config.AdvertisementGroup)
 	if raddr == nil {
 		text := "invalid IPv6 address"
-		return nil, &net.ParseError{text, config.AdvertisementGroup}
+		return nil, &net.ParseError{text, config.Group}
 	}
 
-	for _, zone := range config.AdvertisementZones {
+	for _, zone := range config.Zones {
 		ipaddr := &net.IPAddr{IP: raddr, Zone: zone}
 		node.ipaddrs = append(node.ipaddrs, ipaddr)
 	}
@@ -87,8 +85,6 @@ func (n *neighbor) Start() {
 	if err != nil {
 		return
 	}
-
-	go n.cache()
 
 	for i := range n.conns {
 		go n.listen(n.conns[i], n.ipaddrs[i])
@@ -122,17 +118,6 @@ func (n *neighbor) init() error {
 	return nil
 }
 
-func (n *neighbor) cache() {
-	for {
-		select {
-		case addr := <-n.neighCh:
-			n.neigh[addr] = true
-		case <-n.stopCh:
-			return
-		}
-	}
-}
-
 func (n *neighbor) listen(conn net.PacketConn, ipaddr *net.IPAddr) error {
 	buf := make([]byte, 1500)
 
@@ -151,7 +136,7 @@ func (n *neighbor) listen(conn net.PacketConn, ipaddr *net.IPAddr) error {
 			continue
 		}
 
-		n.neighCh <- raddr.String()
+		//n.neighCh <- raddr.String()
 
 		select {
 		case <-n.stopCh:

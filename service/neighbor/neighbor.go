@@ -121,6 +121,8 @@ func (n *neighbor) init() error {
 func (n *neighbor) listen(conn net.PacketConn, ipaddr *net.IPAddr) error {
 	buf := make([]byte, 1500)
 
+	sendch, errch := queue.PublishAsync(record.NeighAddrRecord)
+
 	for {
 		nn, raddr, err := conn.ReadFrom(buf)
 		if err != nil {
@@ -136,6 +138,7 @@ func (n *neighbor) listen(conn net.PacketConn, ipaddr *net.IPAddr) error {
 			continue
 		}
 
+		sendch <- raddr.String()
 		//n.neighCh <- raddr.String()
 
 		select {

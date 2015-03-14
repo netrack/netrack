@@ -11,6 +11,3 @@ gom 'golang.org/x/net/icmp'
 # Package ipv6 implements IP-level socket options for the
 # Internet Protocol version 6.
 gom 'golang.org/x/net/ipv6'
-
-# Redigo is a Go client for the Redis database.
-gom 'github.com/garyburd/redigo/redis'

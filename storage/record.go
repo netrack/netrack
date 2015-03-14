@@ -1,4 +1,4 @@
-package record
+package storage
 
 const (
 	NeighAddrRecord Type = "NEIGH-ADDR-RECORD"

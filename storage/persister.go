@@ -5,6 +5,55 @@ import (
 	"io"
 )
 
+var (
+	ErrTypeNotDeclared = errors.New("storage: Type is not declared")
+	ErrTypeLoad        = errors.New("storage: Load Type is wrong")
+)
+
+type Loader interface {
+	Load(interface{}) error
+}
+
+type LoaderFunc func(interface{}) error
+
+func (fn LoaderFunc) Load(v interface{}) error {
+	return fn(v)
+}
+
+type Trigger interface {
+	Trigger(interface{}) error
+}
+
+type TriggerFunc func(interface{}) error
+
+func (fn TriggerFunc) Trigger(v interface{}) error {
+	return fn(v)
+}
+
+type Persister interface {
+	io.Closer
+
+	// Add the specified value to the set stored at Type. Specified values
+	// that are already a member of this set are ignored. If Type does not exist,
+	// an error will be returned.
+	Put(Type, interface{}) error
+
+	// Returns all the values of the set stored at Type. If Type does not exists,
+	// an error will be returned.
+	Get(Type, Loader) error
+
+	// Subscribes the client to the specified Type. If Type does not exists,
+	// an error will be returned.
+	Hook(Type, Trigger) error
+}
+
+var types = make(map[Type]bool)
+
+// Declare makes a new type available.
+func Declare(t Type) {
+	types[t] = true
+}
+
 type Result interface {
 }
 
@@ -13,50 +62,45 @@ type Elements interface {
 	LoadTo(Loader) error
 }
 
-type Stmt interface {
+type Statement interface {
 	io.Closer
 
 	Exec(args ...interface{}) (Result, error)
 	Query(args ...interface{}) (Elements, error)
 }
 
-type Loader interface {
-	Load(interface{}) error
-}
-
-type Dumper interface {
-	Dump() (interface{}, error)
-}
-
-type LoaderFunc func(interface{}) error
-
-func (fn LoaderFunc) Scan(v interface{}) error {
-	return fn(v)
-}
-
-type Persister interface {
-	io.Closer
-
-	Put(Type, Dumper) error
-	Get(Type, Loader) error
-
-	Hook(Type) (chan<- bool, error)
-}
-
 type stmt struct {
-	putStmt  Stmt
-	getStmt  Stmt
-	hookStmt Stmt
+	putStmt  Statement
+	getStmt  Statement
+	hookStmt Statement
 }
 
-type perister struct {
+func (s *stmt) Close() (err error) {
+	err = s.putStmt.Close()
+	if err != nil {
+		return
+	}
+
+	err = s.getStmt.Close()
+	if err != nil {
+		return
+	}
+
+	return s.hookStmt.Close()
+}
+
+type persister struct {
 	stmts map[Type]*stmt
+}
+
+func NewPersister() *persister {
+	return &persister{prepareStmt()}
 }
 
 func (p *persister) recordToStmt(r Type) (*stmt, error) {
 	s, ok := p.stmts[r]
 	if !ok {
-		return nil, fmt.Errorf("storage: record is not present")
+		return nil, ErrTypeNotDeclared
 	}
 
 	return s, nil
@@ -72,15 +116,15 @@ func (p *persister) Put(r Type, v interface{}) error {
 	return err
 }
 
-func (p *persister) Get(r Type, s Loader) error {
+func (p *persister) Get(r Type, l Loader) error {
 	stmt, err := p.recordToStmt(r)
 	if err != nil {
 		return err
 	}
 
-	elements, err := stmt.getStmt.Query(r, v)
+	elements, err := stmt.getStmt.Query(r)
 	for elements.Next() {
-		err := elements.ScanTo(s)
+		err := elements.LoadTo(l)
 		if err != nil {
 			return err
 		}
@@ -89,7 +133,14 @@ func (p *persister) Get(r Type, s Loader) error {
 	return nil
 }
 
-func (p *persister) Hoot(r Type) error {
+func (p *persister) Hook(r Type, t Trigger) error {
+	stmt, err := p.recordToStmt(r)
+	if err != nil {
+		return err
+	}
+
+	_, err = stmt.hookStmt.Exec(r, t)
+	return err
 }
 
 func (p *persister) Close() (e error) {
@@ -103,51 +154,48 @@ func (p *persister) Close() (e error) {
 	return
 }
 
-func Open(config *Config) (Persister, error) {
-	stmts, err := prepareStmt(config)
-	if err != nil {
-		return nil, err
-	}
-
-	return &persister{stmts}, nil
-}
-
-var DefaultPersister Persister
+var DefaultPersister = NewPersister()
 
 func Put(r Type, v interface{}) error {
 	return DefaultPersister.Put(r, v)
 }
 
-func Get(r Type, s Loader) error {
-	return DefaultPersister.Get(r, s)
+func Get(r Type, l Loader) error {
+	return DefaultPersister.Get(r, l)
+}
+
+func Hook(r Type, t Trigger) error {
+	return DefaultPersister.Hook(r, t)
 }
 
 func Close() error {
 	return DefaultPersister.Close()
 }
 
-var ErrType = errors.New("storage: wrong type")
+func StringSliceLoader(s *[]string) Loader {
+	*s = []string{}
 
-func StringSliceLoader(s []string) Loader {
 	return LoaderFunc(func(v interface{}) error {
 		str, ok := v.(string)
 		if !ok {
-			return ErrType
+			return ErrTypeLoad
 		}
 
-		append(s, str)
+		*s = append(*s, str)
 		return nil
 	})
 }
 
-func IntSliceLoader(s []int) Loader {
-	return LoaderFunc(func(v interface{}) {
+func IntSliceLoader(s *[]int) Loader {
+	*s = []int{}
+
+	return LoaderFunc(func(v interface{}) error {
 		n, ok := v.(int)
 		if !ok {
-			return ErrType
+			return ErrTypeLoad
 		}
 
-		append(s, n)
+		*s = append(*s, n)
 		return nil
 	})
 }

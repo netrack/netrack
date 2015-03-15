@@ -2,11 +2,6 @@
 #
 instance_id = "2ba5e6cc-c5bb-11e4-a23c-001fd08d7e6c"
 
-[db]
-server_address = "127.0.0.1"
-server_port = 6379
-server_password = "passw0rd"
-
 [neighbor]
 advertisement_group = "ff02::a"
 advertisement_zones = ["eth0"]

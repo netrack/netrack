@@ -6,7 +6,6 @@ import (
 	"github.com/netrack/netrack/service/flowvisor"
 	"github.com/netrack/netrack/service/metadata"
 	"github.com/netrack/netrack/service/neighbor"
-	"github.com/netrack/netrack/service/redis"
 )
 
 type Config struct {
@@ -15,7 +14,6 @@ type Config struct {
 	Neighbor  neighbor.Config  `toml:"neighbor"`
 	Metadata  metadata.Config  `toml:"metadata"`
 	Flowvisor flowvisor.Config `toml:"flowvisor"`
-	Redis     redis.Config     `toml:"redis"`
 }
 
 func LoadFile(path string) (*Config, error) {

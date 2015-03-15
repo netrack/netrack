@@ -2,17 +2,21 @@ package neighbor
 
 import (
 	"bytes"
+	"fmt"
 	"net"
+	"sync"
 	"testing"
 	"time"
 
 	"golang.org/x/net/icmp"
 	"golang.org/x/net/ipv6"
+
+	"github.com/netrack/netrack/storage"
 )
 
 var neighborConfig = Config{
-	AdvertisementGroup: "ff02::a",
-	AdvertisementZones: []string{"eth0"},
+	Group: "ff02::a",
+	Zones: []string{"eth0"},
 }
 
 type dummyConn struct {
@@ -58,8 +62,6 @@ func TestNeighborSolicitation(t *testing.T) {
 	numconn := 20
 
 	neighbor := &neighbor{
-		neigh:   make(map[string]bool),
-		neighCh: make(chan string, numconn),
 		stopCh:  make(chan bool, numconn),
 		conns:   make([]net.PacketConn, numconn),
 		ipaddrs: make([]*net.IPAddr, numconn),
@@ -83,41 +85,21 @@ func TestNeighborSolicitation(t *testing.T) {
 		neighbor.ipaddrs[i] = ipaddr
 	}
 
+	var wg sync.WaitGroup
+	wg.Add(1)
+
+	trigger := storage.TriggerFunc(func(v interface{}) error {
+		defer wg.Done()
+		return nil
+	})
+
+	storage.Hook(storage.NeighAddrType, trigger)
+
 	for i, c := range neighbor.conns {
 		go neighbor.listen(c, neighbor.ipaddrs[i])
 	}
 
 	defer neighbor.Stop()
 
-	for i := 0; i < numconn; i++ {
-		addr := <-neighbor.neighCh
-		if addr != "fe80::1%en0" {
-			t.Fatal("Failed to return right address:", addr)
-		}
-	}
-}
-
-func TestNeighbor(t *testing.T) {
-	neighbor, err := New(&neighborConfig)
-	if err != nil {
-		t.Fatal("Failed to create a new neighbor:", err)
-	}
-
-	err = neighbor.init()
-	if err != nil {
-		t.Fatal("Failed to initialize neighbor:", err)
-	}
-
-	if len(neighbor.conns) != 1 {
-		t.Fatal("Failed to initialize connections:", err)
-	}
-
-	go neighbor.cache()
-	neighbor.neighCh <- "fe80::13"
-	neighbor.stopCh <- true
-
-	_, ok := neighbor.neigh["fe80::13"]
-	if !ok {
-		t.Fatalf("Failed to store received address")
-	}
+	wg.Wait()
 }

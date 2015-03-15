@@ -1,15 +1,22 @@
 package neighbor
 
 import (
+	"fmt"
 	"net"
 	"time"
 
 	"golang.org/x/net/icmp"
 	"golang.org/x/net/internal/iana"
 	"golang.org/x/net/ipv6"
+
+	"github.com/netrack/netrack/eventlet"
 )
 
 const icmp6 = "ip6:58"
+
+func init() {
+	storage.Declare(storage.NeighAddrType)
+}
 
 type NeighborAdvertisement struct {
 	Target net.IP
@@ -54,19 +61,15 @@ type neighbor struct {
 	interval time.Duration
 	// list of parsed IPv6 addresses
 	ipaddrs []*net.IPAddr
-
 	stopCh  chan bool
-	neighCh chan string
 }
 
 func New(config *Config) (*neighbor, error) {
 	node := &neighbor{
-		neigh:   make(map[string]bool),
-		neighCh: make(chan string),
-		stopCh:  make(chan bool, len(config.Zones)+1),
+		stopCh: make(chan bool, len(config.Zones)+1),
 	}
 
-	raddr := net.ParseIP(config.AdvertisementGroup)
+	raddr := net.ParseIP(config.Group)
 	if raddr == nil {
 		text := "invalid IPv6 address"
 		return nil, &net.ParseError{text, config.Group}
@@ -121,8 +124,6 @@ func (n *neighbor) init() error {
 func (n *neighbor) listen(conn net.PacketConn, ipaddr *net.IPAddr) error {
 	buf := make([]byte, 1500)
 
-	sendch, errch := queue.PublishAsync(record.NeighAddrRecord)
-
 	for {
 		nn, raddr, err := conn.ReadFrom(buf)
 		if err != nil {
@@ -138,8 +139,8 @@ func (n *neighbor) listen(conn net.PacketConn, ipaddr *net.IPAddr) error {
 			continue
 		}
 
-		sendch <- raddr.String()
-		//n.neighCh <- raddr.String()
+		event := &events.StringEvent{eventlet.NeighAddrType, raddr.String()}
+		eventlet.Tell(event)
 
 		select {
 		case <-n.stopCh:

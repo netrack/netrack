@@ -8,6 +8,8 @@ var (
 	ErrTypeLoad = errors.New("eventlet: Load Type is wrong")
 )
 
+type Type string
+
 type Loader interface {
 	Load(interface{}) error
 }
@@ -17,8 +19,6 @@ type LoaderFunc func(interface{}) error
 func (fn LoaderFunc) Load(v interface{}) error {
 	return fn(v)
 }
-
-type Type string
 
 type Event interface {
 	Type() Type

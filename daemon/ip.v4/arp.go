@@ -1,7 +1,6 @@
 package ip
 
 import (
-	"bytes"
 	"net"
 
 	"github.com/netrack/net/iana"
@@ -27,7 +26,7 @@ func (s *ARPServer) Hello(rw of.ResponseWriter, r *of.Request) {
 	// Catch all ARP requests
 	match := ofp.Match{ofp.MT_OXM, []ofp.OXM{
 		ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_ETH_TYPE, of.Bytes(iana.ETHT_ARP), nil},
-		ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_ARP_OP, of.Bytes(l3.ARPOT_REQUEST), nil},
+		//ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_ARP_OP, of.Bytes(l3.ARPOT_REQUEST), nil},
 	}}
 
 	// Move all such packets to controller
@@ -61,14 +60,14 @@ func (s *ARPServer) PacketIn(rw of.ResponseWriter, r *of.Request) {
 		return
 	}
 
-	if !bytes.Equal(arp.ProtoDst, s.IPAddr) {
-		return
-	}
+	//if !bytes.Equal(arp.ProtoDst, s.IPAddr) {
+	//return
+	//}
 
 	eth = l2.EthernetII{eth.HWSrc, s.HWAddr, iana.ETHT_ARP}
 	arp = l3.ARP{l3.ARPT_ETHERNET, iana.ETHT_IPV4, l3.ARPOT_REPLY,
 		s.HWAddr,
-		s.IPAddr,
+		arp.ProtoDst,
 		arp.HWSrc,
 		arp.ProtoSrc,
 	}

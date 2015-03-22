@@ -15,6 +15,8 @@ func main() {
 	icmpd := ip.ICMPServer{l2addr, l3addr}
 	arpd := ip.ARPServer{l2addr, l3addr}
 
+	router := ip.Router{}
+
 	of.HandleFunc(of.T_HELLO, func(rw of.ResponseWriter, r *of.Request) {
 		rw.Header().Set(of.TypeHeaderKey, of.T_HELLO)
 		rw.Header().Set(of.VersionHeaderKey, ofp.VERSION)
@@ -27,10 +29,11 @@ func main() {
 		rw.WriteHeader()
 	})
 
-	of.HandleFunc(of.T_HELLO, icmpd.Hello)
+	of.HandleFunc(of.T_HELLO, router.Hello)
 	of.HandleFunc(of.T_HELLO, arpd.Hello)
+	of.HandleFunc(of.T_HELLO, icmpd.Hello)
 
-	of.HandleFunc(of.T_PACKET_IN, icmpd.PacketIn)
+	//of.HandleFunc(of.T_PACKET_IN, icmpd.PacketIn)
 	of.HandleFunc(of.T_PACKET_IN, arpd.PacketIn)
 
 	of.ListenAndServe()

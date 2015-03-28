@@ -24,18 +24,14 @@ class StarTopo(mininet.topo.Topo):
 def set_default_route(network):
     for host in network.hosts:
         host.cmd("ip route add default via 10.0.{0}.254 dev {1}-eth0".format(
-            host.name.replace("h", ""),
-            host.name
-        ))
+            host.name.replace("h", ""), host.name))
 
 def main():
     mininet.log.setLogLevel("info")
-    
+
     net = mininet.net.Mininet(topo=StarTopo())
-    net.addController(
-        controller=mininet.node.RemoteController,
-        ip="192.168.0.100",
-    )
+    net.addController(ip="192.168.0.100",
+        controller=mininet.node.RemoteController)
 
     set_default_route(net)
 
@@ -45,4 +41,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-    

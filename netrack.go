@@ -4,6 +4,10 @@ import (
 	"flag"
 	"fmt"
 	"os"
+
+	"github.com/netrack/netrack/controller"
+	"github.com/netrack/netrack/mechanism"
+	"github.com/netrack/netrack/net/ip.v4"
 )
 
 var (
@@ -13,7 +17,7 @@ var (
 	flHelp    = flag.Bool("help", false, "Pring usage")
 )
 
-func main() {
+func Main() {
 	flag.Parse()
 
 	if *flVersion {
@@ -39,4 +43,10 @@ func flDoHelp() {
 
 func flDoVersion() {
 	fmt.Fprintf(os.Stdout, "%s\n", version)
+}
+
+func main() {
+	drv := []mech.Driver{&ip.ARPMech{}, &ip.ICMPMech{}, &ip.IPMech{}}
+	c := controller.C{Addr: "192.168.0.100:6633", Drv: drv}
+	c.ListenAndServe()
 }

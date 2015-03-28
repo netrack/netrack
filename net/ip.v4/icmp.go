@@ -6,22 +6,35 @@ import (
 	"github.com/netrack/net/iana"
 	"github.com/netrack/net/l2"
 	"github.com/netrack/net/l3"
+	"github.com/netrack/netrack/mechanism"
 	"github.com/netrack/openflow"
 	"github.com/netrack/openflow/ofp.v13"
 )
 
-type ICMPServer struct {
+type ICMPMech struct {
+	C *mech.Context
+
 	HWAddr net.HardwareAddr
 	IPAddr net.IP
 }
 
-func (s *ICMPServer) Hello(rw of.ResponseWriter, r *of.Request) {
+func (m *ICMPMech) Initialize(c *mech.Context) {
+	m.C = c
+
+	m.HWAddr = net.HardwareAddr{0, 0, 0, 0, 0, 254}
+	m.IPAddr = net.IP{10, 0, 1, 254}
+
+	m.C.Mux.HandleFunc(of.T_HELLO, m.helloHandler)
+	m.C.Mux.HandleFunc(of.T_PACKET_IN, m.packetInHandler)
+}
+
+func (m *ICMPMech) helloHandler(rw of.ResponseWriter, r *of.Request) {
 	rw.Header().Set(of.TypeHeaderKey, of.T_FLOW_MOD)
 	rw.Header().Set(of.VersionHeaderKey, ofp.VERSION)
 
 	match := ofp.Match{ofp.MT_OXM, []ofp.OXM{
 		ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_ETH_TYPE, of.Bytes(iana.ETHT_IPV4), nil},
-		ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_IPV4_DST, of.Bytes(s.IPAddr), nil},
+		ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_IPV4_DST, of.Bytes(m.IPAddr), nil},
 		ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_IP_PROTO, of.Bytes(iana.IP_PROTO_ICMP), nil},
 		ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_ICMPV4_TYPE, of.Bytes(l3.ICMPT_ECHO_REQUEST), nil},
 	}}
@@ -42,7 +55,7 @@ func (s *ICMPServer) Hello(rw of.ResponseWriter, r *of.Request) {
 	rw.WriteHeader()
 }
 
-func (s *ICMPServer) PacketIn(rw of.ResponseWriter, r *of.Request) {
+func (m *ICMPMech) packetInHandler(rw of.ResponseWriter, r *of.Request) {
 	var p ofp.PacketIn
 	p.ReadFrom(r.Body)
 
@@ -62,10 +75,10 @@ func (s *ICMPServer) PacketIn(rw of.ResponseWriter, r *of.Request) {
 	}
 
 	icmp.Type = l3.ICMPT_ECHO_REPLY
-	payload, _ := of.NewReader(&icmp)
+	payload := of.NewReader(&icmp)
 
-	eth = l2.EthernetII{eth.HWSrc, s.HWAddr, iana.ETHT_IPV4}
-	ip = l3.IPv4{Src: s.IPAddr, Dst: ip.Src, Proto: iana.IP_PROTO_ICMP, Payload: payload}
+	eth = l2.EthernetII{eth.HWSrc, m.HWAddr, iana.ETHT_IPV4}
+	ip = l3.IPv4{Src: m.IPAddr, Dst: ip.Src, Proto: iana.IP_PROTO_ICMP, Payload: payload}
 
 	pout := ofp.PacketOut{BufferID: ofp.NO_BUFFER,
 		InPort:  p.Match.Field(ofp.XMT_OFB_IN_PORT).Value.PortNo(),

@@ -9,6 +9,9 @@ const (
 	T_ARP_RESOLVE Type = iota
 	T_IPV4_ADD_ROUTE
 	T_IPV4_DELETE_ROUTE
+	T_DATAPATH_PORTS
+	T_DATAPATH_ID
+	T_DATAPATH
 )
 
 type Type int
@@ -23,13 +26,13 @@ func (fn CallerFunc) Call(param interface{}) (interface{}, error) {
 	return fn(param)
 }
 
-type RPCaller interface {
+type ProcCaller interface {
 	Register(Type, Caller) error
-	RegisterFunc(Type, func(interface{}) (interface{}, error)) error
+	RegisterFunc(Type, CallerFunc) error
 	Call(Type, interface{}) (interface{}, error)
 }
 
-func New() RPCaller {
+func New() ProcCaller {
 	return &rpCaller{methods: make(map[Type]Caller)}
 }
 
@@ -54,7 +57,7 @@ func (r *rpCaller) Register(t Type, c Caller) error {
 	return nil
 }
 
-func (r *rpCaller) RegisterFunc(t Type, fn func(interface{}) (interface{}, error)) error {
+func (r *rpCaller) RegisterFunc(t Type, fn CallerFunc) error {
 	return r.Register(t, CallerFunc(fn))
 }
 

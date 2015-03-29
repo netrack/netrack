@@ -6,19 +6,20 @@ import (
 	"github.com/netrack/net/iana"
 	"github.com/netrack/net/l2"
 	"github.com/netrack/net/l3"
+	"github.com/netrack/netrack/log"
 	"github.com/netrack/netrack/mechanism"
 	"github.com/netrack/openflow"
 	"github.com/netrack/openflow/ofp.v13"
 )
 
 type ICMPMech struct {
-	C *mech.Context
+	C *mech.OFPContext
 
 	HWAddr net.HardwareAddr
 	IPAddr net.IP
 }
 
-func (m *ICMPMech) Initialize(c *mech.Context) {
+func (m *ICMPMech) Initialize(c *mech.OFPContext) {
 	m.C = c
 
 	m.HWAddr = net.HardwareAddr{0, 0, 0, 0, 0, 254}
@@ -26,6 +27,8 @@ func (m *ICMPMech) Initialize(c *mech.Context) {
 
 	m.C.Mux.HandleFunc(of.T_HELLO, m.helloHandler)
 	m.C.Mux.HandleFunc(of.T_PACKET_IN, m.packetInHandler)
+
+	log.InfoLog("icmp/INIT_DONE", "ICMP mechanism successfully intialized")
 }
 
 func (m *ICMPMech) helloHandler(rw of.ResponseWriter, r *of.Request) {

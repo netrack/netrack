@@ -34,3 +34,29 @@ func IPAddr(v interface{}, err error) (net.IP, error) {
 
 	return addr, nil
 }
+
+func StringSlice(v interface{}, err error) ([]string, error) {
+	if err != nil {
+		return nil, err
+	}
+
+	s, ok := v.([]string)
+	if !ok {
+		return nil, errors.New("rpc: unexpected type for []string")
+	}
+
+	return s, nil
+}
+
+func String(v interface{}, err error) (string, error) {
+	if err != nil {
+		return "", err
+	}
+
+	s, ok := v.(string)
+	if !ok {
+		return "", errors.New("rpc: unexpected type for string")
+	}
+
+	return s, nil
+}

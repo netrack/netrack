@@ -9,6 +9,7 @@ import (
 	"github.com/netrack/netrack/mechanism"
 	"github.com/netrack/netrack/net/ip.v4"
 	"github.com/netrack/netrack/net/ofp.v13"
+	"github.com/netrack/netrack/rest"
 )
 
 var (
@@ -47,7 +48,22 @@ func flDoVersion() {
 }
 
 func main() {
-	drv := []mech.Driver{&ofp.OFPMech{}, &ip.ARPMech{}, &ip.ICMPMech{}, &ip.IPMech{}}
-	c := controller.C{Addr: "192.168.0.100:6633", Drv: drv}
+	ofpdrv := []mech.OFPDriver{
+		&ofp.OFPMech{},
+		&ip.ARPMech{},
+		&ip.ICMPMech{},
+		&ip.IPMech{},
+	}
+
+	httpdrv := []mech.HTTPDriver{
+		&rest.IFaceMgmt{},
+	}
+
+	c := controller.C{
+		Addr:    "192.168.0.100:6633",
+		OFPDrv:  ofpdrv,
+		HTTPDrv: httpdrv,
+	}
+
 	c.ListenAndServe()
 }

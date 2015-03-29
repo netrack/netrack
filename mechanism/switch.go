@@ -6,14 +6,13 @@ import (
 )
 
 type Switch struct {
-	ID   string
 	Conn of.OFPConn
-	Drv  []Driver
-	C    *Context
+	Drv  []OFPDriver
+	C    *OFPContext
 }
 
 func (d *Switch) Boot() {
-	d.C = &Context{rpc.New(), d.Conn, of.NewServeMux()}
+	d.C = &OFPContext{rpc.New(), d.Conn, of.NewServeMux()}
 	for _, drv := range d.Drv {
 		drv.Initialize(d.C)
 	}

@@ -5,6 +5,7 @@ import (
 	"sync"
 
 	"github.com/netrack/net/iana"
+	"github.com/netrack/netrack/log"
 	"github.com/netrack/netrack/mechanism"
 	"github.com/netrack/openflow"
 	"github.com/netrack/openflow/ofp.v13"
@@ -36,14 +37,16 @@ type RoutingTable struct {
 }
 
 type IPMech struct {
-	C *mech.Context
+	C *mech.OFPContext
 	T RoutingTable
 }
 
-func (m *IPMech) Initialize(c *mech.Context) {
+func (m *IPMech) Initialize(c *mech.OFPContext) {
 	m.C = c
 
 	m.C.Mux.HandleFunc(of.T_HELLO, m.helloHandler)
+
+	log.InfoLog("ip/INIT_DONE", "IP mechanism successfully intialized")
 }
 
 func (m *IPMech) helloHandler(rw of.ResponseWriter, r *of.Request) {

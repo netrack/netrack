@@ -24,13 +24,16 @@ func (m *IFaceMgmt) indexHandler(rw http.ResponseWriter, r *http.Request) {
 }
 
 func (m *IFaceMgmt) showHandler(rw http.ResponseWriter, r *http.Request) {
+	var caller rpc.ProcCaller
 	dpid := httputil.Param(r, "dpid")
 
-	caller, err := m.C.R.Call(rpc.T_DATAPATH, dpid)
+	err := m.C.R.Call(rpc.T_DATAPATH, rpc.StringParam(dpid), rpc.ProcCallerResult(&caller))
 	if err != nil {
 		fmt.Println(err)
+		return
 	}
 
-	ports, err := caller.(rpc.ProcCaller).Call(rpc.T_DATAPATH_PORTS, nil)
+	var ports []string
+	err = caller.Call(rpc.T_DATAPATH_PORTS, nil, rpc.StringSliceResult(&ports))
 	fmt.Println(ports, err)
 }

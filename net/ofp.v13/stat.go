@@ -22,8 +22,8 @@ type OFPMech struct {
 func (m *OFPMech) Initialize(c *mech.OFPContext) {
 	m.C = c
 
-	m.C.R.RegisterFunc(rpc.T_DATAPATH_PORTS, m.dpPortsCaller)
-	m.C.R.RegisterFunc(rpc.T_DATAPATH_ID, m.dpidCaller)
+	m.C.R.RegisterFunc(rpc.T_DATAPATH_PORTS, m.datapathPorts)
+	m.C.R.RegisterFunc(rpc.T_DATAPATH_ID, m.datapathIdentifier)
 
 	m.C.Mux.HandleFunc(of.T_HELLO, m.helloHandler)
 	m.C.Mux.HandleFunc(of.T_ECHO_REQUEST, m.echoHandler)
@@ -76,28 +76,22 @@ func (m *OFPMech) multipartHandler(rw of.ResponseWriter, r *of.Request) {
 	}
 }
 
-func (m *OFPMech) dpPortsCaller(param interface{}) (interface{}, error) {
-	return m.dpPorts()
+func (m *OFPMech) datapathPorts(param rpc.Param, result rpc.Result) error {
+	var ports []string
 
-}
-
-func (m *OFPMech) dpPorts() (s []string, err error) {
 	for _, p := range m.ports {
-		s = append(s, string(p.Name))
+		ports = append(ports, string(p.Name))
 	}
 
-	return
+	return result.Return(ports)
 }
 
-func (m *OFPMech) dpidCaller(param interface{}) (interface{}, error) {
-	return m.dpid()
-}
-
-func (m *OFPMech) dpid() (string, error) {
+func (m *OFPMech) datapathIdentifier(param rpc.Param, result rpc.Result) error {
 	var b bytes.Buffer
+
 	err := binary.Write(&b, binary.BigEndian, m.features.DatapathID)
 	if err != nil {
-		return "", err
+		return err
 	}
 
 	id := fmt.Sprintf("%x", b.Bytes())
@@ -107,5 +101,5 @@ func (m *OFPMech) dpid() (string, error) {
 		parts = append(parts, string(id[i:i+2]))
 	}
 
-	return strings.Join(parts, "-"), nil
+	return result.Return(strings.Join(parts, "-"))
 }

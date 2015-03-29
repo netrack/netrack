@@ -8,7 +8,7 @@ import (
 	"github.com/netrack/net/l3"
 	"github.com/netrack/netrack/log"
 	"github.com/netrack/netrack/mechanism"
-	"github.com/netrack/netrack/mechanism/rpc"
+	//"github.com/netrack/netrack/mechanism/rpc"
 	"github.com/netrack/openflow"
 	"github.com/netrack/openflow/ofp.v13"
 )
@@ -29,7 +29,7 @@ func (m *ARPMech) Initialize(c *mech.OFPContext) {
 	//TODO: HWAddr from datapath
 	m.HWAddr = net.HardwareAddr{0, 0, 0, 0, 0, 254}
 
-	m.C.R.RegisterFunc(rpc.T_ARP_RESOLVE, m.resolveCaller)
+	//m.C.R.RegisterFunc(rpc.T_ARP_RESOLVE, m.resolveCaller)
 
 	m.C.Mux.HandleFunc(of.T_HELLO, m.Hello)
 	m.C.Mux.HandleFunc(of.T_PACKET_IN, m.PacketIn)
@@ -115,24 +115,24 @@ func (m *ARPMech) PacketIn(rw of.ResponseWriter, r *of.Request) {
 	rw.WriteHeader()
 }
 
-func (m *ARPMech) resolveCaller(param interface{}) (interface{}, error) {
-	ipaddr, err := rpc.IPAddr(param, nil)
-	if err != nil {
-		return nil, err
-	}
+//func (m *ARPMech) resolveCaller(param interface{}) (interface{}, error) {
+//ipaddr, err := rpc.IPAddr(param, nil)
+//if err != nil {
+//return nil, err
+//}
 
-	return m.Resolve(ipaddr)
-}
+//return m.Resolve(ipaddr)
+//}
 
-func (m *ARPMech) Resolve(net.IP) (net.HardwareAddr, error) {
-	//r := of.NewRequest(of.T_PACKET_OUT, &ofp.PacketOut{
-	//BufferID: ofp.NO_BUFFER,
-	//InPort:   ofp.P_FLOOD,
-	//Actions:  ofp.Actions{},
-	//})
+//func (m *ARPMech) Resolve(net.IP) (net.HardwareAddr, error) {
+////r := of.NewRequest(of.T_PACKET_OUT, &ofp.PacketOut{
+////BufferID: ofp.NO_BUFFER,
+////InPort:   ofp.P_FLOOD,
+////Actions:  ofp.Actions{},
+////})
 
-	//m.C.Conn.Send(r)
-	//m.C.Conn.Flush()
+////m.C.Conn.Send(r)
+////m.C.Conn.Flush()
 
-	return nil, nil
-}
+//return nil, nil
+//}

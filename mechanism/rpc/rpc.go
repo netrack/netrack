@@ -16,56 +16,76 @@ const (
 
 type Type int
 
-type Caller interface {
-	Call(param interface{}) (interface{}, error)
+type Param interface {
+	Obtain(...interface{}) error
 }
 
-type CallerFunc func(param interface{}) (interface{}, error)
+type Result interface {
+	Return(...interface{}) error
+}
 
-func (fn CallerFunc) Call(param interface{}) (interface{}, error) {
-	return fn(param)
+type ParamFunc func(...interface{}) error
+
+func (fn ParamFunc) Obtain(args ...interface{}) error {
+	return fn(args...)
+}
+
+type ResultFunc func(...interface{}) error
+
+func (fn ResultFunc) Return(args ...interface{}) error {
+	return fn(args...)
+}
+
+type Caller interface {
+	Call(param Param, result Result) error
+}
+
+type CallerFunc func(param Param, result Result) error
+
+func (fn CallerFunc) Call(param Param, result Result) error {
+	return fn(param, result)
 }
 
 type ProcCaller interface {
 	Register(Type, Caller) error
 	RegisterFunc(Type, CallerFunc) error
-	Call(Type, interface{}) (interface{}, error)
+	Call(Type, Param, Result) error
 }
 
 func New() ProcCaller {
-	return &rpCaller{methods: make(map[Type]Caller)}
+	return &procCaller{methods: make(map[Type]Caller)}
 }
 
-type rpCaller struct {
+type procCaller struct {
 	methods map[Type]Caller
 	lock    sync.RWMutex
 }
 
-func (r *rpCaller) Register(t Type, c Caller) error {
-	r.lock.Lock()
-	defer r.lock.Unlock()
+func (c *procCaller) Register(t Type, caller Caller) error {
+	c.lock.Lock()
+	defer c.lock.Unlock()
 
-	if _, dup := r.methods[t]; dup {
+	if _, dup := c.methods[t]; dup {
 		return errors.New("rpc: multiple registrations")
 	}
 
-	if c == nil {
+	if caller == nil {
 		return errors.New("rpc: nil caller")
 	}
 
-	r.methods[t] = c
+	c.methods[t] = caller
 	return nil
 }
 
-func (r *rpCaller) RegisterFunc(t Type, fn CallerFunc) error {
-	return r.Register(t, CallerFunc(fn))
+func (c *procCaller) RegisterFunc(t Type, fn CallerFunc) error {
+	return c.Register(t, CallerFunc(fn))
 }
 
-func (r *rpCaller) Call(t Type, param interface{}) (interface{}, error) {
-	caller, ok := r.methods[t]
+func (c *procCaller) Call(t Type, param Param, result Result) error {
+	caller, ok := c.methods[t]
 	if !ok {
-		return nil, errors.New("rpc: caller not registered")
+		return errors.New("rpc: caller not registered")
 	}
 
-	return caller.Call(param)
+	return caller.Call(param, result)
 }

@@ -48,7 +48,7 @@ func (c *C) serveOFP() {
 func (c *C) serveHTTP() {
 	mux := httputil.NewServeMux()
 	c.httpc = &mech.HTTPContext{rpc.New(), mux}
-	c.httpc.R.RegisterFunc(rpc.T_DATAPATH, c.dpCaller)
+	c.httpc.R.RegisterFunc(rpc.T_DATAPATH, c.datapath)
 
 	for _, drv := range c.HTTPDrv {
 		drv.Initialize(c.httpc)
@@ -60,27 +60,24 @@ func (c *C) serveHTTP() {
 	}()
 }
 
-func (c *C) dpCaller(param interface{}) (interface{}, error) {
-	id, ok := param.(string)
-	if !ok {
-		return nil, errors.New("unexpected value for string")
+func (c *C) datapath(param rpc.Param, result rpc.Result) error {
+	var id, dpid string
+
+	if err := param.Obtain(&id); err != nil {
+		return nil
 	}
 
-	return c.dp(id)
-}
-
-func (c *C) dp(id string) (rpc.ProcCaller, error) {
 	for _, device := range c.devices {
-		dpid, err := rpc.String(device.C.R.Call(rpc.T_DATAPATH_ID, nil))
+		err := device.C.R.Call(rpc.T_DATAPATH_ID, nil, rpc.StringResult(&dpid))
 		if err != nil {
-			continue
+			return err
 		}
 
 		fmt.Println(dpid, id)
 		if dpid == id {
-			return device.C.R, nil
+			return result.Return(device.C.R)
 		}
 	}
 
-	return nil, errors.New("dp not found")
+	return errors.New("datapath not found")
 }

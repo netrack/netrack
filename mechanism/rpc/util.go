@@ -2,61 +2,85 @@ package rpc
 
 import (
 	"errors"
-	"net"
 )
 
 var (
-	ErrEmptyReturn = errors.New("rpc: return list is empty")
+	ErrEmptyParam  = errors.New("rpc: param list is empty")
+	ErrInvalidType = errors.New("rpc: invalid type")
 )
 
-func HWAddr(v interface{}, err error) (net.HardwareAddr, error) {
-	if err != nil {
-		return nil, err
+func lenHelper(args []interface{}) error {
+	if len(args) == 0 {
+		return ErrEmptyParam
 	}
 
-	addr, ok := v.(net.HardwareAddr)
-	if !ok {
-		return nil, errors.New("rpc: unexpected type for net.HardwareAddr")
-	}
-
-	return addr, nil
+	return nil
 }
 
-func IPAddr(v interface{}, err error) (net.IP, error) {
-	if err != nil {
-		return nil, err
-	}
+func StringParam(s string) Param {
+	return ParamFunc(func(args ...interface{}) error {
+		if err := lenHelper(args); err != nil {
+			return err
+		}
 
-	addr, ok := v.(net.IP)
-	if !ok {
-		return nil, errors.New("rpc: unexpected type for net.IPAddr")
-	}
+		if p, ok := args[0].(*string); ok {
+			*p = s
+			return nil
+		}
 
-	return addr, nil
+		return ErrInvalidType
+	})
 }
 
-func StringSlice(v interface{}, err error) ([]string, error) {
-	if err != nil {
-		return nil, err
-	}
+func StringResult(p *string) Result {
+	return ResultFunc(func(args ...interface{}) error {
+		if err := lenHelper(args); err != nil {
+			return err
+		}
 
-	s, ok := v.([]string)
-	if !ok {
-		return nil, errors.New("rpc: unexpected type for []string")
-	}
+		if s, ok := args[0].(string); ok {
+			*p = s
+			return nil
+		}
 
-	return s, nil
+		return ErrInvalidType
+	})
 }
 
-func String(v interface{}, err error) (string, error) {
-	if err != nil {
-		return "", err
-	}
+func StringSliceResult(s *[]string) Result {
+	return ResultFunc(func(args ...interface{}) error {
+		if err := lenHelper(args); err != nil {
+			return err
+		}
 
-	s, ok := v.(string)
-	if !ok {
-		return "", errors.New("rpc: unexpected type for string")
-	}
+		if slice, ok := args[0].([]string); ok {
+			*s = slice
+			return nil
+		}
 
-	return s, nil
+		return ErrInvalidType
+	})
 }
+
+func ProcCallerResult(c *ProcCaller) Result {
+	return ResultFunc(func(args ...interface{}) error {
+		if err := lenHelper(args); err != nil {
+			return err
+		}
+
+		if p, ok := args[0].(ProcCaller); ok {
+			*c = p
+			return nil
+		}
+
+		return ErrInvalidType
+	})
+}
+
+//func CompositeParam(params ...Param) Param {
+//return ParamFunc(func(args ...interface{}) error {
+//for index := range params {
+////param.Obtain(
+//}
+//})
+//}

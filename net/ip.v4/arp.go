@@ -2,34 +2,40 @@ package ip
 
 import (
 	"net"
+	"sync"
 
 	"github.com/netrack/net/iana"
 	"github.com/netrack/net/l2"
 	"github.com/netrack/net/l3"
+	"github.com/netrack/net/netutil"
 	"github.com/netrack/netrack/log"
 	"github.com/netrack/netrack/mechanism"
-	//"github.com/netrack/netrack/mechanism/rpc"
+	"github.com/netrack/netrack/mechanism/rpc"
 	"github.com/netrack/openflow"
 	"github.com/netrack/openflow/ofp.v13"
 )
 
+type NeighEntry struct {
+	Addr  net.IP
+	Iface ofp.PortNo
+	//Timestamp
+}
+
 type NeighTable struct {
-	//
+	neighs []NeighEntry
+	lock   sync.RWMutex
 }
 
 type ARPMech struct {
 	C      *mech.OFPContext
-	HWAddr net.HardwareAddr
 	IPAddr net.IP
+	T      NeighTable
 }
 
 func (m *ARPMech) Initialize(c *mech.OFPContext) {
 	m.C = c
 
-	//TODO: HWAddr from datapath
-	m.HWAddr = net.HardwareAddr{0, 0, 0, 0, 0, 254}
-
-	//m.C.R.RegisterFunc(rpc.T_ARP_RESOLVE, m.resolveCaller)
+	m.C.R.RegisterFunc(rpc.T_ARP_RESOLVE, m.resolveIPAddr)
 
 	m.C.Mux.HandleFunc(of.T_HELLO, m.Hello)
 	m.C.Mux.HandleFunc(of.T_PACKET_IN, m.PacketIn)
@@ -42,9 +48,6 @@ func (m *ARPMech) Hello(rw of.ResponseWriter, r *of.Request) {
 	rw.Header().Set(of.VersionHeaderKey, ofp.VERSION)
 
 	// Catch all ARP requests
-	// TODO: make them prettier
-	// ofp.MatchEtherType(iana.ETHT_ARP),
-	// ofp.MatchARPOperation(l3.ARPOT_REQUEST),
 	match := ofp.Match{ofp.MT_OXM, []ofp.OXM{
 		ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_ETH_TYPE, of.Bytes(iana.ETHT_ARP), nil},
 		ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_ARP_OP, of.Bytes(l3.ARPOT_REQUEST), nil},
@@ -93,9 +96,22 @@ func (m *ARPMech) PacketIn(rw of.ResponseWriter, r *of.Request) {
 	//return
 	//}
 
-	eth = l2.EthernetII{eth.HWSrc, m.HWAddr, iana.ETHT_ARP}
+	var srcHWAddr []byte
+	portNo := p.Match.Field(ofp.XMT_OFB_IN_PORT).Value.UInt32()
+
+	err := m.C.R.Call(rpc.T_DATAPATH_PORT_HWADDR,
+		rpc.UInt16Param(uint16(portNo)),
+		rpc.ByteSliceResult(&srcHWAddr))
+
+	if err != nil {
+		log.ErrorLog("arp/ARP_REQUEST_PORT_HWADDR_ERR",
+			"Failed to find port hardware address: ", err)
+		return
+	}
+
+	eth = l2.EthernetII{eth.HWSrc, net.HardwareAddr(srcHWAddr), iana.ETHT_ARP}
 	arp = l3.ARP{l3.ARPT_ETHERNET, iana.ETHT_IPV4, l3.ARPOT_REPLY,
-		m.HWAddr,
+		net.HardwareAddr(srcHWAddr),
 		arp.ProtoDst,
 		arp.HWSrc,
 		arp.ProtoSrc,
@@ -106,33 +122,30 @@ func (m *ARPMech) PacketIn(rw of.ResponseWriter, r *of.Request) {
 		Actions: ofp.Actions{ofp.ActionOutput{ofp.P_IN_PORT, 0}},
 	}
 
-	pout.WriteTo(rw)
-	eth.WriteTo(rw)
-	arp.WriteTo(rw)
+	_, err = netutil.WriteAllTo(rw, &pout, &eth, &arp)
+	if err != nil {
+		log.ErrorLog("arp/ARP_REQUEST_WRITE_ERR",
+			"Failed to write ARP response: ", err)
+		return
+	}
 
 	rw.Header().Set(of.TypeHeaderKey, of.T_PACKET_OUT)
 	rw.Header().Set(of.VersionHeaderKey, ofp.VERSION)
-	rw.WriteHeader()
+	if err := rw.WriteHeader(); err != nil {
+		log.ErrorLog("arp/ARP_REQUEST_SEND_ERR",
+			"Failed to send ARP response: ", err)
+	}
 }
 
-//func (m *ARPMech) resolveCaller(param interface{}) (interface{}, error) {
-//ipaddr, err := rpc.IPAddr(param, nil)
-//if err != nil {
-//return nil, err
-//}
+func (m *ARPMech) resolveIPAddr(param rpc.Param, result rpc.Result) error {
+	//r := of.NewRequest(of.T_PACKET_OUT, &ofp.PacketOut{
+	//BufferID: ofp.NO_BUFFER,
+	//InPort:   ofp.P_FLOOD,
+	//Actions:  ofp.Actions{},
+	//})
 
-//return m.Resolve(ipaddr)
-//}
+	//m.C.Conn.Send(r)
+	//m.C.Conn.Flush()
 
-//func (m *ARPMech) Resolve(net.IP) (net.HardwareAddr, error) {
-////r := of.NewRequest(of.T_PACKET_OUT, &ofp.PacketOut{
-////BufferID: ofp.NO_BUFFER,
-////InPort:   ofp.P_FLOOD,
-////Actions:  ofp.Actions{},
-////})
-
-////m.C.Conn.Send(r)
-////m.C.Conn.Flush()
-
-//return nil, nil
-//}
+	return nil
+}

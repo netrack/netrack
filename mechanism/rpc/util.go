@@ -17,6 +17,21 @@ func lenHelper(args []interface{}) error {
 	return nil
 }
 
+func UInt16Param(u uint16) Param {
+	return ParamFunc(func(args ...interface{}) error {
+		if err := lenHelper(args); err != nil {
+			return err
+		}
+
+		if p, ok := args[0].(*uint16); ok {
+			*p = u
+			return nil
+		}
+
+		return ErrInvalidType
+	})
+}
+
 func StringParam(s string) Param {
 	return ParamFunc(func(args ...interface{}) error {
 		if err := lenHelper(args); err != nil {
@@ -32,6 +47,21 @@ func StringParam(s string) Param {
 	})
 }
 
+func ByteSliceParam(b []byte) Param {
+	return ParamFunc(func(args ...interface{}) error {
+		if err := lenHelper(args); err != nil {
+			return err
+		}
+
+		if p, ok := args[0].(*[]byte); ok {
+			*p = b
+			return nil
+		}
+
+		return ErrInvalidType
+	})
+}
+
 func StringResult(p *string) Result {
 	return ResultFunc(func(args ...interface{}) error {
 		if err := lenHelper(args); err != nil {
@@ -40,6 +70,21 @@ func StringResult(p *string) Result {
 
 		if s, ok := args[0].(string); ok {
 			*p = s
+			return nil
+		}
+
+		return ErrInvalidType
+	})
+}
+
+func ByteSliceResult(b *[]byte) Result {
+	return ResultFunc(func(args ...interface{}) error {
+		if err := lenHelper(args); err != nil {
+			return err
+		}
+
+		if slice, ok := args[0].([]byte); ok {
+			*b = slice
 			return nil
 		}
 
@@ -76,11 +121,3 @@ func ProcCallerResult(c *ProcCaller) Result {
 		return ErrInvalidType
 	})
 }
-
-//func CompositeParam(params ...Param) Param {
-//return ParamFunc(func(args ...interface{}) error {
-//for index := range params {
-////param.Obtain(
-//}
-//})
-//}

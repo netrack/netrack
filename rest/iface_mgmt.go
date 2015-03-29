@@ -34,6 +34,6 @@ func (m *IFaceMgmt) showHandler(rw http.ResponseWriter, r *http.Request) {
 	}
 
 	var ports []string
-	err = caller.Call(rpc.T_DATAPATH_PORTS, nil, rpc.StringSliceResult(&ports))
+	err = caller.Call(rpc.T_DATAPATH_PORT_NAMES, nil, rpc.StringSliceResult(&ports))
 	fmt.Println(ports, err)
 }

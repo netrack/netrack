@@ -56,7 +56,7 @@ func main() {
 	}
 
 	httpdrv := []mech.HTTPDriver{
-		&rest.IFaceMgmt{},
+		&rest.AddressMgmt{},
 	}
 
 	c := controller.C{

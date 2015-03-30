@@ -3,11 +3,11 @@ package ip
 import (
 	"net"
 	"sync"
+	"time"
 
 	"github.com/netrack/net/iana"
 	"github.com/netrack/net/l2"
 	"github.com/netrack/net/l3"
-	"github.com/netrack/net/netutil"
 	"github.com/netrack/netrack/log"
 	"github.com/netrack/netrack/mechanism"
 	"github.com/netrack/netrack/mechanism/rpc"
@@ -15,15 +15,22 @@ import (
 	"github.com/netrack/openflow/ofp.v13"
 )
 
+const TableARP ofp.Table = 2
+
 type NeighEntry struct {
-	Addr  net.IP
-	Iface ofp.PortNo
-	//Timestamp
+	IPAddr []byte
+	HWAddr []byte
+	Port   ofp.PortNo
+	Time   time.Time
 }
 
 type NeighTable struct {
 	neighs []NeighEntry
 	lock   sync.RWMutex
+}
+
+func (t *NeighTable) Lookup(ipaddr []byte) ([]byte, error) {
+	return nil, nil
 }
 
 type ARPMech struct {
@@ -35,10 +42,10 @@ type ARPMech struct {
 func (m *ARPMech) Initialize(c *mech.OFPContext) {
 	m.C = c
 
-	m.C.R.RegisterFunc(rpc.T_ARP_RESOLVE, m.resolveIPAddr)
+	m.C.R.RegisterFunc(rpc.T_ARP_RESOLVE, m.resolve)
 
 	m.C.Mux.HandleFunc(of.T_HELLO, m.Hello)
-	m.C.Mux.HandleFunc(of.T_PACKET_IN, m.PacketIn)
+	m.C.Mux.HandleFunc(of.T_PACKET_IN, m.packetHandler)
 
 	log.InfoLog("arp/INIT_DONE", "ARP mechanism successfully initialized")
 }
@@ -71,7 +78,7 @@ func (m *ARPMech) Hello(rw of.ResponseWriter, r *of.Request) {
 	rw.WriteHeader()
 }
 
-func (m *ARPMech) PacketIn(rw of.ResponseWriter, r *of.Request) {
+func (m *ARPMech) packetHandler(rw of.ResponseWriter, r *of.Request) {
 	var p ofp.PacketIn
 	p.ReadFrom(r.Body)
 
@@ -84,18 +91,6 @@ func (m *ARPMech) PacketIn(rw of.ResponseWriter, r *of.Request) {
 	if arp.ReadFrom(r.Body); arp.Operation != l3.ARPOT_REQUEST {
 		return
 	}
-
-	//m.Handle(netutil.ARPHandler(m.arpHook))
-	//m.Handle(netutil.CompositeHandler(
-	//netutil.IPv4Handler(nil),
-	//netutil.ICMPHandler(nil),
-	//))
-
-	//m.Serve(r.Body)
-
-	//if !bytem.Equal(arp.ProtoDst, m.IPAddr) {
-	//return
-	//}
 
 	var srcHWAddr []byte
 	portNo := p.Match.Field(ofp.XMT_OFB_IN_PORT).Value.UInt32()
@@ -123,7 +118,7 @@ func (m *ARPMech) PacketIn(rw of.ResponseWriter, r *of.Request) {
 		Actions: ofp.Actions{ofp.ActionOutput{ofp.P_IN_PORT, 0}},
 	}
 
-	_, err = netutil.WriteAllTo(rw, &pout, &eth, &arp)
+	_, err = of.WriteAllTo(rw, &pout, &eth, &arp)
 	if err != nil {
 		log.ErrorLog("arp/ARP_REQUEST_WRITE_ERR",
 			"Failed to write ARP response: ", err)
@@ -138,7 +133,50 @@ func (m *ARPMech) PacketIn(rw of.ResponseWriter, r *of.Request) {
 	}
 }
 
-func (m *ARPMech) resolveIPAddr(param rpc.Param, result rpc.Result) error {
+func (m *ARPMech) resolveCaller(param rpc.Param, result rpc.Result) error {
+	var srcIPAddr, dstIPAddr []byte
+	var portNo uint16
+
+	if err := param.Obtain(&srcIPAddr, &dstIPAddr, &portNo); err != nil {
+		log.ErrorLog("arp/ARP_RESOLVE",
+			"Failed to obtain argument: ", err)
+		return err
+	}
+
+	// Check if entry already in a neigh table
+	dstHWAddr, err := m.T.Lookup(dstIPAddr)
+	if err == nil {
+		return result.Return(dstHWAddr)
+	}
+
+	var srcHWAddr []byte
+	err = m.C.R.Call(rpc.T_DATAPATH_PORT_HWADDR,
+		rpc.UInt16Param(),
+		rpc.ByteSliceResult(&srcHWaddr))
+
+	if err != nil {
+		log.ErrorLog("arp/ARP_RESOLVE",
+			"Failed to fetch port hardware address: ", err)
+		return err
+	}
+
+	// Start long process of discovery
+	eth := l2.EthernetII{
+		net.HardwareAddr(l2.HWBcast),
+		net.HardwareAddr(net.srcHWAddr),
+		iana.ETHT_ARP,
+	}
+
+	arp := l3.ARP{
+		HWType:    l2.ARPT_ETHERNET,
+		ProtoType: iana.ETHT_IPV4,
+		Operation: l2.ARPOT_REQUEST,
+		HWSrc:     net.HardwareAddr(srcHWAddr),
+		ProtoSrc:  net.IP(srcIPAddr),
+		HWDst:     net.HardwareAddr(l2.HWUnspec),
+		ProtoDst:  net.IP(dstIPAddr),
+	}
+
 	//r := of.NewRequest(of.T_PACKET_OUT, &ofp.PacketOut{
 	//BufferID: ofp.NO_BUFFER,
 	//InPort:   ofp.P_FLOOD,

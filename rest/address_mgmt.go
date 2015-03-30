@@ -9,21 +9,23 @@ import (
 	"github.com/netrack/netrack/mechanism/rpc"
 )
 
-type IFaceMgmt struct {
+// IP protocol address management
+type AddressMgmt struct {
 	C *mech.HTTPContext
 }
 
-func (m *IFaceMgmt) Initialize(c *mech.HTTPContext) {
+func (m *AddressMgmt) Initialize(c *mech.HTTPContext) {
 	m.C = c
 
-	m.C.Mux.HandleFunc("GET", "/dps/{dpid}/ifaces", m.indexHandler)
-	m.C.Mux.HandleFunc("GET", "/dps/{dpid}/ifaces/{iface}", m.showHandler)
+	m.C.Mux.HandleFunc("PUT", "/switches/{dpid}/ip/address", m.indexHandler)
+	m.C.Mux.HandleFunc("GET", "/switches/{dpid}/ip/address", m.showHandler)
+	m.C.Mux.HandleFunc("DELETE", "/switches/{dpid}/ip/address", m.deleteHandler)
 }
 
-func (m *IFaceMgmt) indexHandler(rw http.ResponseWriter, r *http.Request) {
+func (m *AddressMgmt) indexHandler(rw http.ResponseWriter, r *http.Request) {
 }
 
-func (m *IFaceMgmt) showHandler(rw http.ResponseWriter, r *http.Request) {
+func (m *AddressMgmt) showHandler(rw http.ResponseWriter, r *http.Request) {
 	var caller rpc.ProcCaller
 	dpid := httputil.Param(r, "dpid")
 

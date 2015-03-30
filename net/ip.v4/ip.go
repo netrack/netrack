@@ -1,7 +1,9 @@
 package ip
 
 import (
+	"errors"
 	"net"
+	"sort"
 	"sync"
 	"time"
 
@@ -14,20 +16,40 @@ import (
 )
 
 const (
-	STATIC_ROUTE RouteType = "S"
+	StaticRoute    RouteType = "S"
+	LocalRoute     RouteType = "L"
+	ConnectedRoute RouteType = "C"
+	EIGRPRoute     RouteType = "D"
+	OSPFRoute      RouteType = "O"
+	RIPRoute       RouteType = "R"
 )
 
-const (
-	IPV4_TABLE_ID ofp.Table = 0
-)
+var distanceMap = map[RouteType]int{
+	StaticRoute:    0,
+	ConnectedRoute: 1,
+	EIGRPRoute:     90,
+	OSPFRoute:      110,
+	RIPRoute:       120,
+}
+
+func routeToDistance(r RouteType) (int, error) {
+	distance, ok := distanceMap[r]
+	if !ok {
+		return 0, errors.New("ip: unsupported route type")
+	}
+
+	return distance, nil
+}
+
+const TableIPv4 ofp.Table = 4
 
 type RouteType string
 
 type RouteEntry struct {
-	Type    RouteType
-	Net     net.IPNet
-	NextHop net.IP
-	//Distance
+	Type     RouteType
+	Net      net.IPNet
+	NextHop  net.IP
+	Distance int
 	//Metric
 	//Timestamp
 	Port ofp.PortNo
@@ -38,6 +60,38 @@ type RoutingTable struct {
 	lock   sync.RWMutex
 }
 
+func (t *RoutingTable) Append(entry RouteEntry) error {
+	t.lock.Lock()
+	defer t.lock.Unlock()
+
+	t.routes = append(t.routes, entry)
+	sort.Sort(t)
+}
+
+func (t *RoutingTable) Lookup(ipaddr net.IP) (net.IPNet, error) {
+	return nil, nil
+}
+
+func (t *RoutingTable) Len() int {
+	return len(t.routes)
+}
+
+func (t *RoutingTable) Less(i, j int) bool {
+	if t.routes[i].Distance < t.routes[j].Distance {
+		return true
+	}
+
+	// Compare metric
+	//if r.routes[i].Metric < r.routes[j].Metric {
+	//}
+
+	return false
+}
+
+func (t *RoutingTable) Swap(i, j int) {
+	t.routes[i], t.routes[j] = t.routes[j], t.routes[i]
+}
+
 type IPMech struct {
 	C *mech.OFPContext
 	T RoutingTable
@@ -46,7 +100,7 @@ type IPMech struct {
 func (m *IPMech) Initialize(c *mech.OFPContext) {
 	m.C = c
 
-	m.C.Mux.HandleFunc(of.T_HELLO, m.helloHandler)
+	//m.C.Mux.HandleFunc(of.T_HELLO, m.helloHandler)
 
 	log.InfoLog("ip/INIT_DONE", "IP mechanism successfully intialized")
 }
@@ -54,15 +108,58 @@ func (m *IPMech) Initialize(c *mech.OFPContext) {
 func (m *IPMech) helloHandler(rw of.ResponseWriter, r *of.Request) {
 	go func() {
 		time.Sleep(time.Second * 7)
-		m.Add("10.0.1.1/24", 1)
-		m.Add("10.0.2.1/24", 2)
-		m.Add("10.0.3.1/24", 3)
+		//m.AddRoute(RouteEntry{StaticRoute, })
 	}()
 }
 
-func (m *IPMech) Add(s string, portNo ofp.PortNo) {
-	_, netw, _ := net.ParseCIDR(s)
+func (m *IPMech) addRoute(entry RouteEntry) error {
+	//_, netw, _ := net.ParseCIDR(s)
 
+	if err := m.T.Append(entry); err != nil {
+		log.ErrorLog("ip/ADD_ROUTE_ERR",
+			"Failed to add a new route: ", err)
+		return err
+	}
+
+	return nil
+}
+
+func (m *IPMech) packetHandler(rw *of.ResponseWriter, r *of.Request) {
+	var packet ofp.PacketIn
+
+	if _, err := packet.ReadFrom(r.Body); err != nil {
+		log.ErrorLog("ip/PACKET_HANDLER",
+			"Failed to read ofp_packet_in message: ", err)
+		return
+	}
+
+	if packet.TableID != TableIPv4 {
+		log.DebugLog("ip/PACKET_HANDLER",
+			"Received packet from wrong table")
+		return
+	}
+
+	var pduL2 l2.EthernetII
+	var pduL3 l3.IPv4
+
+	if _, err := of.ReadAllFrom(r.Body, &pduL2, &pduL3); err != nil {
+		log.ErrorLog("ip/PACKET_HANDLER",
+			"Failed to unmarshal arrived packet: ", err)
+		return
+	}
+
+	netw, err := m.T.Lookup(pduL3.Dst)
+	if err != nil {
+		log.DebugLog("ip/PACKET_HANDLER",
+			"Failed to find route: ", err)
+
+		//TODO: Send ofp_packet_out ICMP destination network unreachable
+		return
+	}
+
+	//TODO: Send ARP query to resolve next hop ip address to hw address
+
+	portNo := packet.Match.Field(ofp.XMT_OFB_IN_PORT).Value.UInt32()
 	match := ofp.Match{ofp.MT_OXM, []ofp.OXM{
 		ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_ETH_TYPE, of.Bytes(iana.ETHT_IPV4), nil},
 		ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_IPV4_DST, of.Bytes(netw.IP), of.Bytes(netw.Mask)},
@@ -76,13 +173,11 @@ func (m *IPMech) Add(s string, portNo ofp.PortNo) {
 		rpc.ByteSliceResult(&srcHWAddr))
 
 	if err != nil {
-		log.ErrorLog("ip/ROUTE_ADD_ERR",
-			"Failed to find port hardware address: ", err)
-		return
+		log.ErrorLog("ip/PACKET_HANDLER",
+			"Failed to retrieve port hardware address: ", err)
+		return err
 	}
 
-	//hwaddr, err := m.C.RPC.Call(rpc.ARP_LOOKUP, netw.IP)
-	//TODO: get rid of this
 	dstHWAddr := net.HardwareAddr{0, 0, 0, 0, 0, byte(portNo)}
 
 	// Change source and destination hardware addresses
@@ -95,12 +190,15 @@ func (m *IPMech) Add(s string, portNo ofp.PortNo) {
 			ofp.ActionSetField{dsthw},
 			ofp.ActionSetField{srchw},
 			ofp.Action{ofp.AT_DEC_NW_TTL},
-			ofp.ActionOutput{portNo, 0},
+			ofp.ActionOutput{ofp.PortNo(portNo), 0},
 		},
 	}}
 
+	// TODO: priority based on administrative distance
+	// TODO: set expire timeout
 	r, err := of.NewRequest(of.T_FLOW_MOD, of.NewReader(&ofp.FlowMod{
-		//TableID:      IPV4_TABLE_ID,
+		TableID:      TableIPv4,
+		Priority:     1,
 		Command:      ofp.FC_ADD,
 		BufferID:     ofp.NO_BUFFER,
 		Match:        match,
@@ -108,24 +206,19 @@ func (m *IPMech) Add(s string, portNo ofp.PortNo) {
 	}))
 
 	if err != nil {
-		log.ErrorLog("ip/ROUTE_ADD_REQUEST_ERR",
+		log.ErrorLog("ip/PACKET_HANDLER",
 			"Failed to create new request: ", err)
 		return
 	}
 
-	m.C.Conn.Send(r)
-	if err = m.C.Conn.Flush(); err != nil {
-		log.ErrorLog("ip/ROUTE_ADD_SEND_ERR",
-			"Failed to send ofp_flow_mode message: ", err)
+	if err = m.C.Conn.Send(r); err != nil {
+		log.Errorlog("ip/PACKET_HANDLER",
+			"Failed to write request: ", err)
+		return
 	}
 
-	//err = m.C.R.Call(rpc.T_ICMP_ADD_PINGER, rpc.CompositeParam(
-	//rpc.ByteSliceParam(netw.IP),
-	//rpc.UInt16Param(uint16(portNo)),
-	//), nil)
-
-	//if err != nil {
-	//log.ErrorLog("ip/ROUTE_ADD_ICMP_ERR",
-	//"Failed to create icmp echo replier: ", err)
-	//}
+	if err = m.C.Conn.Flush(); err != nil {
+		log.ErrorLog("ip/PACKET_HANDLER",
+			"Failed to send ofp_flow_mode message: ", err)
+	}
 }

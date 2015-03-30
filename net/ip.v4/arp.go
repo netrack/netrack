@@ -46,6 +46,7 @@ func (m *ARPMech) Initialize(c *mech.OFPContext) {
 func (m *ARPMech) Hello(rw of.ResponseWriter, r *of.Request) {
 	rw.Header().Set(of.TypeHeaderKey, of.T_FLOW_MOD)
 	rw.Header().Set(of.VersionHeaderKey, ofp.VERSION)
+	rw.Header().Set(of.XIDHeaderKey, uint32(256))
 
 	// Catch all ARP requests
 	match := ofp.Match{ofp.MT_OXM, []ofp.OXM{

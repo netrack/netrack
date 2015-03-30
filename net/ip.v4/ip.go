@@ -3,6 +3,7 @@ package ip
 import (
 	"net"
 	"sync"
+	"time"
 
 	"github.com/netrack/net/iana"
 	"github.com/netrack/netrack/log"
@@ -52,6 +53,7 @@ func (m *IPMech) Initialize(c *mech.OFPContext) {
 
 func (m *IPMech) helloHandler(rw of.ResponseWriter, r *of.Request) {
 	go func() {
+		time.Sleep(time.Second * 7)
 		m.Add("10.0.1.1/24", 1)
 		m.Add("10.0.2.1/24", 2)
 		m.Add("10.0.3.1/24", 3)
@@ -84,15 +86,14 @@ func (m *IPMech) Add(s string, portNo ofp.PortNo) {
 	dstHWAddr := net.HardwareAddr{0, 0, 0, 0, 0, byte(portNo)}
 
 	// Change source and destination hardware addresses
-	fields := []ofp.OXM{
-		ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_ETH_DST, of.Bytes(dstHWAddr), nil},
-		ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_ETH_SRC, of.Bytes(srcHWAddr), nil},
-	}
+	dsthw := ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_ETH_DST, of.Bytes(dstHWAddr), nil}
+	srchw := ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_ETH_SRC, of.Bytes(srcHWAddr), nil}
 
 	instr := ofp.Instructions{ofp.InstructionActions{
 		ofp.IT_APPLY_ACTIONS,
 		ofp.Actions{
-			ofp.ActionSetField{fields},
+			ofp.ActionSetField{dsthw},
+			ofp.ActionSetField{srchw},
 			ofp.Action{ofp.AT_DEC_NW_TTL},
 			ofp.ActionOutput{portNo, 0},
 		},
@@ -117,4 +118,14 @@ func (m *IPMech) Add(s string, portNo ofp.PortNo) {
 		log.ErrorLog("ip/ROUTE_ADD_SEND_ERR",
 			"Failed to send ofp_flow_mode message: ", err)
 	}
+
+	//err = m.C.R.Call(rpc.T_ICMP_ADD_PINGER, rpc.CompositeParam(
+	//rpc.ByteSliceParam(netw.IP),
+	//rpc.UInt16Param(uint16(portNo)),
+	//), nil)
+
+	//if err != nil {
+	//log.ErrorLog("ip/ROUTE_ADD_ICMP_ERR",
+	//"Failed to create icmp echo replier: ", err)
+	//}
 }

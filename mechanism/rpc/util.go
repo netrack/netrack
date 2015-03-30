@@ -5,8 +5,9 @@ import (
 )
 
 var (
-	ErrEmptyParam  = errors.New("rpc: param list is empty")
-	ErrInvalidType = errors.New("rpc: invalid type")
+	ErrEmptyParam   = errors.New("rpc: param list is empty")
+	ErrLenMismatch  = errors.New("rpc: parameters length mismatch")
+	ErrTypeMismatch = errors.New("rpc: type mismatch")
 )
 
 func lenHelper(args []interface{}) error {
@@ -28,7 +29,7 @@ func UInt16Param(u uint16) Param {
 			return nil
 		}
 
-		return ErrInvalidType
+		return ErrTypeMismatch
 	})
 }
 
@@ -43,7 +44,7 @@ func StringParam(s string) Param {
 			return nil
 		}
 
-		return ErrInvalidType
+		return ErrTypeMismatch
 	})
 }
 
@@ -58,7 +59,23 @@ func ByteSliceParam(b []byte) Param {
 			return nil
 		}
 
-		return ErrInvalidType
+		return ErrTypeMismatch
+	})
+}
+
+func CompositeParam(params ...Param) Param {
+	return ParamFunc(func(args ...interface{}) error {
+		if len(args) != len(params) {
+			return ErrLenMismatch
+		}
+
+		for index, param := range params {
+			if err := param.Obtain(args[index]); err != nil {
+				return err
+			}
+		}
+
+		return nil
 	})
 }
 
@@ -73,7 +90,7 @@ func StringResult(p *string) Result {
 			return nil
 		}
 
-		return ErrInvalidType
+		return ErrTypeMismatch
 	})
 }
 
@@ -88,7 +105,7 @@ func ByteSliceResult(b *[]byte) Result {
 			return nil
 		}
 
-		return ErrInvalidType
+		return ErrTypeMismatch
 	})
 }
 
@@ -103,7 +120,7 @@ func StringSliceResult(s *[]string) Result {
 			return nil
 		}
 
-		return ErrInvalidType
+		return ErrTypeMismatch
 	})
 }
 
@@ -118,6 +135,6 @@ func ProcCallerResult(c *ProcCaller) Result {
 			return nil
 		}
 
-		return ErrInvalidType
+		return ErrTypeMismatch
 	})
 }

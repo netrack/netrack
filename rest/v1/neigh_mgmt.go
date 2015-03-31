@@ -16,7 +16,7 @@ type NeighMgmt struct {
 func (m *NeighMgmt) Initialize(c *mech.HTTPContext) {
 	m.C = c
 
-	m.C.Mux.HandleFunc("PUT", "/switches/{dpid}/ip/neigh", nil)
-	m.C.Mux.HandleFunc("GET", "/switches/{dpid}/ip/neigh", nil)
-	m.C.Mux.HandleFunc("DELETE", "/switches/{dpid}/ip/neigh", nil)
+	m.C.Mux.HandleFunc("PUT", "/v1/switches/{dpid}/ip/neigh", nil)
+	m.C.Mux.HandleFunc("GET", "/v1/switches/{dpid}/ip/neigh", nil)
+	m.C.Mux.HandleFunc("DELETE", "/v1/switches/{dpid}/ip/neigh", nil)
 }

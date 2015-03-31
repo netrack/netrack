@@ -168,7 +168,7 @@ func (m *IPMech) packetHandler(rw *of.ResponseWriter, r *of.Request) {
 	var srcHWAddr []byte
 
 	// Get switch port source hardware address
-	err := m.C.R.Call(rpc.T_DATAPATH_PORT_HWADDR,
+	err := m.C.R.Call(rpc.T_OFP_PORT_HWADDR,
 		rpc.UInt16Param(uint16(portNo)),
 		rpc.ByteSliceResult(&srcHWAddr))
 

@@ -42,48 +42,93 @@ type ARPMech struct {
 func (m *ARPMech) Initialize(c *mech.OFPContext) {
 	m.C = c
 
-	m.C.R.RegisterFunc(rpc.T_ARP_RESOLVE, m.resolve)
+	m.C.R.RegisterFunc(rpc.T_ARP_RESOLVE, m.resolveCaller)
 
-	m.C.Mux.HandleFunc(of.T_HELLO, m.Hello)
+	m.C.Mux.HandleFunc(of.T_HELLO, m.helloHandler)
 	m.C.Mux.HandleFunc(of.T_PACKET_IN, m.packetHandler)
 
 	log.InfoLog("arp/INIT_DONE", "ARP mechanism successfully initialized")
 }
 
-func (m *ARPMech) Hello(rw of.ResponseWriter, r *of.Request) {
-	rw.Header().Set(of.TypeHeaderKey, of.T_FLOW_MOD)
-	rw.Header().Set(of.VersionHeaderKey, ofp.VERSION)
-	rw.Header().Set(of.XIDHeaderKey, uint32(256))
+func (m *ARPMech) helloHandler(rw of.ResponseWriter, r *of.Request) {
+	var xid uint32
+	err := m.C.R.Call(rpc.T_OFP_TRANSACTION, nil,
+		rpc.UInt32Result(&xid))
 
-	// Catch all ARP requests
-	match := ofp.Match{ofp.MT_OXM, []ofp.OXM{
-		ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_ETH_TYPE, of.Bytes(iana.ETHT_ARP), nil},
-		ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_ARP_OP, of.Bytes(l3.ARPOT_REQUEST), nil},
-	}}
-
-	// Move all such packets to controller
-	instr := ofp.Instructions{ofp.InstructionActions{
-		ofp.IT_APPLY_ACTIONS,
-		ofp.Actions{ofp.ActionOutput{ofp.P_CONTROLLER, ofp.CML_NO_BUFFER}},
-	}}
-
-	fmod := &ofp.FlowMod{
-		Command:      ofp.FC_ADD,
-		BufferID:     ofp.NO_BUFFER,
-		Match:        match,
-		Instructions: instr,
+	if err != nil {
+		log.ErrorLog("arp/HELLO_HANDLER",
+			"Failed to retrieve a new transaction identifier: ", err)
+		return
 	}
 
-	fmod.WriteTo(rw)
-	rw.WriteHeader()
+	rw.Header().Set(of.TypeHeaderKey, of.T_FLOW_MOD)
+	rw.Header().Set(of.VersionHeaderKey, ofp.VERSION)
+	rw.Header().Set(of.XIDHeaderKey, xid)
+
+	//var hwDstAddr []byte
+	//err = m.C.R.Call(rpc.T_OFP_PORT_HWADDR,
+	//rpc.
+
+	for _, hwaddr := range append([][]byte{l2.HWBcast}, hwDstAddr) {
+		// Catch all ARP requests
+		match := ofp.Match{ofp.MT_OXM, []ofp.OXM{
+			ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_ETH_TYPE, of.Bytes(iana.ETHT_ARP), nil},
+			ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_ETH_DST, hwaddr, nil},
+			ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_ARP_OP, of.Bytes(l3.ARPOT_REQUEST), nil},
+		}}
+
+		// Move data to controller
+		instr := ofp.Instructions{ofp.InstructionActions{
+			ofp.ActionOutput{ofp.P_CONTROLLER, ofp.CML_NO_BUFFER},
+		}}
+
+		flowmod := &ofp.FlowMod{
+			Table:        TableARP,
+			Command:      ofp.FC_ADD,
+			BufferID:     ofp.NO_BUFFER,
+			Match:        match,
+			Instructions: instr,
+		}
+
+		if _, err = fmod.WriteTo(rw); err != nil {
+			log.ErrorLog("arp/HELLO_HANDLER",
+				"Failed to write ofp_flow_mod message: ", err)
+			return
+		}
+
+	}
+
+	if err = rw.WriteHeader(); err != nil {
+		log.ErrorLog("arp/HELLO_HANDLER",
+			"Failed to write flow modifications: ", err)
+	}
 }
 
 func (m *ARPMech) packetHandler(rw of.ResponseWriter, r *of.Request) {
-	var p ofp.PacketIn
-	p.ReadFrom(r.Body)
+	var packet ofp.PacketIn
+	if _, err := packet.ReadFrom(r.Body); err != nil {
+		log.DebugLog("arp/ARP_PACKET_HANDLER",
+			"Failed to read ofp_packet_in message: ", err)
+		return
+	}
 
-	var eth l2.EthernetII
-	if eth.ReadFrom(r.Body); eth.EthType != iana.ETHT_ARP {
+	if packet.TableID != TableARP {
+		log.DebugLog("arp/PACKET_HANDLER",
+			"Received packet from wrong table")
+		return
+	}
+
+	var pdu2 l2.EthernetII
+	var pdu3 l3.ARP
+
+	if _, err = of.ReadAllFrom(r.Body, &pdu2, &pdu3); err != nil {
+		log.ErrorLog("arp/ARP_PACKET_HANDLER",
+			"Failed to read packet: ", err)
+		return
+	}
+
+	if _, err = eth.ReadFrom(r.Body); err != nil {
+		log.ErrorLog("arp/ARP_PACKET_HANDLER")
 		return
 	}
 
@@ -95,7 +140,7 @@ func (m *ARPMech) packetHandler(rw of.ResponseWriter, r *of.Request) {
 	var srcHWAddr []byte
 	portNo := p.Match.Field(ofp.XMT_OFB_IN_PORT).Value.UInt32()
 
-	err := m.C.R.Call(rpc.T_DATAPATH_PORT_HWADDR,
+	err := m.C.R.Call(rpc.T_OFP_PORT_HWADDR,
 		rpc.UInt16Param(uint16(portNo)),
 		rpc.ByteSliceResult(&srcHWAddr))
 
@@ -150,7 +195,7 @@ func (m *ARPMech) resolveCaller(param rpc.Param, result rpc.Result) error {
 	}
 
 	var srcHWAddr []byte
-	err = m.C.R.Call(rpc.T_DATAPATH_PORT_HWADDR,
+	err = m.C.R.Call(rpc.T_OFP_PORT_HWADDR,
 		rpc.UInt16Param(),
 		rpc.ByteSliceResult(&srcHWaddr))
 
@@ -177,14 +222,30 @@ func (m *ARPMech) resolveCaller(param rpc.Param, result rpc.Result) error {
 		ProtoDst:  net.IP(dstIPAddr),
 	}
 
-	//r := of.NewRequest(of.T_PACKET_OUT, &ofp.PacketOut{
-	//BufferID: ofp.NO_BUFFER,
-	//InPort:   ofp.P_FLOOD,
-	//Actions:  ofp.Actions{},
-	//})
+	packet := ofp.PacketOut{
+		BufferID: ofp.NO_BUFFER,
+		InPort:   ofp.P_FLOOD,
+		Actions:  ofp.Actions{},
+	}
 
-	//m.C.Conn.Send(r)
-	//m.C.Conn.Flush()
+	r, err := of.NewRequest(of.T_PACKET_OUT, of.NewReader(&packet, &eth, &arp))
+	if err != nil {
+		log.ErrorLog("arp/ARP_RESOLVE",
+			"Failed to craete a new ARP request: ", err)
+		return err
+	}
+
+	if err = m.C.Conn.Send(r); err != nil {
+		log.ErrorLog("arp/ARP_RESOLVE",
+			"Failed to send an ARP request: ", err)
+		return err
+	}
+
+	if err = m.C.Conn.Flush(); err != nil {
+		log.ErrorLog("arp/ARP_RESOLVE",
+			"Failed to flush data to connection: ", err)
+		return err
+	}
 
 	return nil
 }

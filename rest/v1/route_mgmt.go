@@ -16,7 +16,7 @@ type RouteMgmt struct {
 func (m *RouteMgmt) Intialize(c *mech.HTTPContext) {
 	m.C = c
 
-	m.C.Mux.HandleFunc("PUT", "/switches/{dpid}/ip/route", nil)
-	m.C.Mux.HandleFunc("GET", "/switches/{dpid}/ip/route", nil)
-	m.C.Mux.HandleFunc("DELETE", "/switches/{dpid}/ip/route", nil)
+	m.C.Mux.HandleFunc("PUT", "/v1/switches/{dpid}/ip/route", nil)
+	m.C.Mux.HandleFunc("GET", "/v1/switches/{dpid}/ip/route", nil)
+	m.C.Mux.HandleFunc("DELETE", "/v1/switches/{dpid}/ip/route", nil)
 }

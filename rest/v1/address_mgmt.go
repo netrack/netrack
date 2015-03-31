@@ -17,9 +17,9 @@ type AddressMgmt struct {
 func (m *AddressMgmt) Initialize(c *mech.HTTPContext) {
 	m.C = c
 
-	m.C.Mux.HandleFunc("PUT", "/switches/{dpid}/ip/address", m.indexHandler)
-	m.C.Mux.HandleFunc("GET", "/switches/{dpid}/ip/address", m.showHandler)
-	m.C.Mux.HandleFunc("DELETE", "/switches/{dpid}/ip/address", m.deleteHandler)
+	m.C.Mux.HandleFunc("PUT", "/v1/switches/{dpid}/ip/address", m.indexHandler)
+	m.C.Mux.HandleFunc("GET", "/v1/switches/{dpid}/ip/address", m.showHandler)
+	m.C.Mux.HandleFunc("DELETE", "/v1/switches/{dpid}/ip/address", m.deleteHandler)
 }
 
 func (m *AddressMgmt) indexHandler(rw http.ResponseWriter, r *http.Request) {

@@ -23,9 +23,12 @@ type OFPMech struct {
 func (m *OFPMech) Initialize(c *mech.OFPContext) {
 	m.C = c
 
-	m.C.R.RegisterFunc(rpc.T_DATAPATH_PORT_NAMES, m.datapathPortNames)
-	m.C.R.RegisterFunc(rpc.T_DATAPATH_PORT_HWADDR, m.datapathPortHWAddr)
-	m.C.R.RegisterFunc(rpc.T_DATAPATH_ID, m.datapathIdentifier)
+	m.C.R.RegisterFunc(rpc.T_OFP_PORT_ALL, m.portAll)
+	m.C.R.RegisterFunc(rpc.T_OFP_PORT_NAME, m.portName)
+	m.C.R.RegisterFunc(rpc.T_OFP_PORT_NAME_ALL, m.portNameAll)
+	m.C.R.RegisterFunc(rpc.T_OFP_PORT_HWADDR, m.portHWAddr)
+	m.C.R.RegisterFunc(rpc.T_OFP_PORT_HWADDR_ALL, m.portHWAddrAll)
+	m.C.R.RegisterFunc(rpc.T_OFP_ID, m.id)
 
 	m.C.Mux.HandleFunc(of.T_HELLO, m.helloHandler)
 	m.C.Mux.HandleFunc(of.T_ECHO_REQUEST, m.echoHandler)
@@ -94,7 +97,39 @@ func (m *OFPMech) multipartHandler(rw of.ResponseWriter, r *of.Request) {
 	}
 }
 
-func (m *OFPMech) datapathPortNames(param rpc.Param, result rpc.Result) error {
+func (m *OFPMech) portAll(param rpc.Param, result rpc.Result) error {
+	var ports []uint16
+
+	for _, port := range ports {
+		ports = append(ports, uint16(port.PortNo))
+	}
+
+	return result.Return(ports)
+}
+
+func (m *OFPMech) portName(param rpc.Param, result rpc.Result) error {
+	var portNo uint16
+
+	if err := param.Obtain(&portNo); err != nil {
+		log.ErrorLog("ofp/OFP_PORT_HWADDR_ERR",
+			"Failed to obtain port number from param: ", err)
+		return err
+	}
+
+	for _, port := range m.ports {
+		if uint16(port.PortNo) == portNo {
+			log.DebugLog("ofp/OFP_PORT_HWADDR",
+				"Found port name: ", port.Name)
+			return result.Return(string(port.Name))
+		}
+	}
+
+	log.DebugLog("ofp/OFP_PORT_HWADDR",
+		"Requested port not found: ", portNo)
+	return errors.New("ofp: port does not exist")
+}
+
+func (m *OFPMech) portNameAll(param rpc.Param, result rpc.Result) error {
 	var ports []string
 
 	for _, p := range m.ports {
@@ -104,34 +139,44 @@ func (m *OFPMech) datapathPortNames(param rpc.Param, result rpc.Result) error {
 	return result.Return(ports)
 }
 
-func (m *OFPMech) datapathPortHWAddr(param rpc.Param, result rpc.Result) error {
+func (m *OFPMech) portHWAddr(param rpc.Param, result rpc.Result) error {
 	var portNo uint16
 
 	if err := param.Obtain(&portNo); err != nil {
-		log.ErrorLog("ofp/DATAPATH_PORT_HWADDR_ERR",
+		log.ErrorLog("ofp/OFP_PORT_HWADDR_ERR",
 			"Failed to obtain port number from param: ", err)
 		return err
 	}
 
 	for _, port := range m.ports {
 		if uint16(port.PortNo) == portNo {
-			log.DebugLog("ofp/DATAPATH_PORT_HWADDR",
+			log.DebugLog("ofp/OFP_PORT_HWADDR",
 				"Found port hardware address: ", port.HWAddr)
 			return result.Return([]byte(port.HWAddr))
 		}
 	}
 
-	log.DebugLog("ofp/DATAPATH_PORT_HWADDR",
+	log.DebugLog("ofp/OFP_PORT_HWADDR",
 		"Requested port not found: ", portNo)
-	return errors.New("ofp: port not found")
+	return errors.New("ofp: port does not exist")
 }
 
-func (m *OFPMech) datapathIdentifier(param rpc.Param, result rpc.Result) error {
+func (m *OFPMech) portHWAddrAll(param rpc.Param, result rpc.Result) error {
+	var addrs [][]byte
+
+	for _, port := range m.ports {
+		addrs = append(addrs, []byte(port.HWAddr))
+	}
+
+	return result.Return(addrs)
+}
+
+func (m *OFPMech) id(param rpc.Param, result rpc.Result) error {
 	var b bytes.Buffer
 
 	err := binary.Write(&b, binary.BigEndian, m.features.DatapathID)
 	if err != nil {
-		log.ErrorLog("ofp/DATAPATH_ID_WRITE_ERR",
+		log.ErrorLog("ofp/OFP_ID_WRITE_ERR",
 			"Failed serialize datapath identifier: ", err)
 		return err
 	}
@@ -143,5 +188,5 @@ func (m *OFPMech) datapathIdentifier(param rpc.Param, result rpc.Result) error {
 		parts = append(parts, string(id[i:i+2]))
 	}
 
-	return result.Return(strings.Join(parts, "-"))
+	return result.Return(strings.Join(parts, ":"))
 }

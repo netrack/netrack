@@ -1,9 +1,15 @@
 package mech
 
 import (
+	"encoding/binary"
+	"errors"
+	"fmt"
+	"sync/atomic"
+
 	"github.com/netrack/netrack/httputil"
 	"github.com/netrack/netrack/mechanism/rpc"
 	"github.com/netrack/openflow"
+	"github.com/netrack/openflow/ofp.v13"
 )
 
 type OFPContext struct {

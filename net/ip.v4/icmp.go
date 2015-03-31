@@ -52,7 +52,7 @@ func (m *ICMPMech) packetInHandler(rw of.ResponseWriter, r *of.Request) {
 	var hwaddr []byte
 	portNo := p.Match.Field(ofp.XMT_OFB_IN_PORT).Value.UInt32()
 
-	err := m.C.R.Call(rpc.T_DATAPATH_PORT_HWADDR,
+	err := m.C.R.Call(rpc.T_OFP_PORT_HWADDR,
 		rpc.UInt16Param(uint16(portNo)),
 		rpc.ByteSliceResult(&hwaddr))
 
@@ -93,7 +93,7 @@ func (m *ICMPMech) Add(param rpc.Param, result rpc.Result) error {
 	}
 
 	var hwaddr []byte
-	err := m.C.R.Call(rpc.T_DATAPATH_PORT_HWADDR,
+	err := m.C.R.Call(rpc.T_OFP_PORT_HWADDR,
 		rpc.UInt16Param(portNo),
 		rpc.ByteSliceResult(&hwaddr))
 

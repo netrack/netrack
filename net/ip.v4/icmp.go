@@ -14,20 +14,25 @@ import (
 	"github.com/netrack/openflow/ofp.v13"
 )
 
-type ICMPMech struct {
-	C *mech.OFPContext
+func init() {
+	constructorr := mech.MechanismDriverCostructorFunc(NewIPMech)
+	mech.RegisterMechanismDriver("icmp-mechanism", constructor)
 }
 
-func (m *ICMPMech) Initialize(c *mech.OFPContext) {
-	m.C = c
+type ICMPMechanism struct {
+	mech.BaseMechanismDriver
+}
 
-	m.C.R.RegisterFunc(rpc.T_ICMP_ADD_PINGER, m.Add)
-	m.C.Mux.HandleFunc(of.T_PACKET_IN, m.packetInHandler)
+func (m *ICMPMechanism) Enable(c *mech.MechanismDriverContext) {
+	m.BaseMechanismDriver.Enable(c)
+
+	m.BaseMechanismDriver.C.Func.RegisterFunc(rpc.T_ICMP_ADD_PINGER, m.Add)
+	m.BaseMechanismDriver.C.Mux.HandleFunc(of.T_PACKET_IN, m.packetInHandler)
 
 	log.InfoLog("icmp/INIT_DONE", "ICMP mechanism successfully intialized")
 }
 
-func (m *ICMPMech) packetInHandler(rw of.ResponseWriter, r *of.Request) {
+func (m *ICMPMechanism) packetInHandler(rw of.ResponseWriter, r *of.Request) {
 	var p ofp.PacketIn
 	p.ReadFrom(r.Body)
 
@@ -52,7 +57,7 @@ func (m *ICMPMech) packetInHandler(rw of.ResponseWriter, r *of.Request) {
 	var hwaddr []byte
 	portNo := p.Match.Field(ofp.XMT_OFB_IN_PORT).Value.UInt32()
 
-	err := m.C.R.Call(rpc.T_OFP_PORT_HWADDR,
+	err := m.BaseMechanismDriver.C.Func.Call(rpc.T_OFP_PORT_HWADDR,
 		rpc.UInt16Param(uint16(portNo)),
 		rpc.ByteSliceResult(&hwaddr))
 
@@ -82,7 +87,7 @@ func (m *ICMPMech) packetInHandler(rw of.ResponseWriter, r *of.Request) {
 	rw.WriteHeader()
 }
 
-func (m *ICMPMech) Add(param rpc.Param, result rpc.Result) error {
+func (m *ICMPMechanism) Add(param rpc.Param, result rpc.Result) error {
 	var ipaddr []byte
 	var portNo uint16
 
@@ -93,7 +98,7 @@ func (m *ICMPMech) Add(param rpc.Param, result rpc.Result) error {
 	}
 
 	var hwaddr []byte
-	err := m.C.R.Call(rpc.T_OFP_PORT_HWADDR,
+	err := m.BaseMechanismDriver.C.Func.Call(rpc.T_OFP_PORT_HWADDR,
 		rpc.UInt16Param(portNo),
 		rpc.ByteSliceResult(&hwaddr))
 
@@ -131,7 +136,7 @@ func (m *ICMPMech) Add(param rpc.Param, result rpc.Result) error {
 			"Failed to create a new ofp_flow_mod request: ", err)
 	}
 
-	if err = m.C.Conn.Send(req); err != nil {
+	if err = m.BaseMechanismDriver.C.Conn.Send(req); err != nil {
 		log.ErrorLogf("icmp/ADD_ICMP_SERVER_SEND_ERR",
 			"Failed to send ofp_flow_mod request:", err)
 	}

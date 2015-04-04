@@ -13,12 +13,15 @@ import (
 )
 
 type C struct {
-	Addr    string
-	OFPDrv  []mech.OFPDriver
-	HTTPDrv []mech.HTTPDriver
+	Addr string
 
-	devices []*mech.Switch
-	httpc   *mech.HTTPContext
+	// swManager manages switch connections
+	swManager *mech.SwitchManager
+
+	// mdManager manages mechanism drivers
+	mdManager *mech.MechanismDriverManager
+
+	httpc *mech.HTTPContext
 }
 
 func (c *C) ListenAndServe() {
@@ -54,6 +57,7 @@ func (c *C) serveHTTP() {
 		drv.Initialize(c.httpc)
 	}
 
+	//FIXME: make address configurable
 	s := &http.Server{Addr: ":8080", Handler: mux}
 	go func() {
 		log.Fatal(s.ListenAndServe())

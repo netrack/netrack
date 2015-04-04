@@ -48,7 +48,7 @@ func flDoVersion() {
 }
 
 func main() {
-	ofpdrv := []mech.OFPDriver{
+	ofpdrv := []mech.MechanismDriver{
 		&ofp.OFPMech{},
 		&ip.ARPMech{},
 		&ip.ICMPMech{},

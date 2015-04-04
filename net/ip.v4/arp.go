@@ -15,6 +15,11 @@ import (
 	"github.com/netrack/openflow/ofp.v13"
 )
 
+func init() {
+	constructor := mech.MechanismDriverCostructorFunc(NewARPMechanism)
+	mech.RegisterMechanismDriver("arp-mechanism", constructor)
+}
+
 const TableARP ofp.Table = 2
 
 type NeighEntry struct {
@@ -33,16 +38,20 @@ func (t *NeighTable) Lookup(ipaddr []byte) ([]byte, error) {
 	return nil, nil
 }
 
-type ARPMech struct {
-	C      *mech.OFPContext
-	IPAddr net.IP
-	T      NeighTable
+type ARPMechanism struct {
+	mech.BaseMechanismDriver
+	T NeighTable
 }
 
-func (m *ARPMech) Initialize(c *mech.OFPContext) {
-	m.C = c
+func NewARPMechanism() mech.MechanismDriver {
+	return &ARPMechanism{}
+}
 
-	m.C.R.RegisterFunc(rpc.T_ARP_RESOLVE, m.resolveCaller)
+// Enable implements MechanismDriver interface
+func (m *ARPMechanism) Enable(c *mech.MechanismDriverContext) {
+	m.BaseMechanismDriver.Enable(c)
+
+	m.C.Func.RegisterFunc(rpc.T_ARP_RESOLVE, m.resolveCaller)
 
 	m.C.Mux.HandleFunc(of.T_HELLO, m.helloHandler)
 	m.C.Mux.HandleFunc(of.T_PACKET_IN, m.packetHandler)
@@ -50,9 +59,12 @@ func (m *ARPMech) Initialize(c *mech.OFPContext) {
 	log.InfoLog("arp/INIT_DONE", "ARP mechanism successfully initialized")
 }
 
-func (m *ARPMech) helloHandler(rw of.ResponseWriter, r *of.Request) {
+// Activate implements MechanismDriver interface
+func (m *ARPMechanism) Activate() {
+	m.BaseMechanismDriver.Activate()
+
 	var xid uint32
-	err := m.C.R.Call(rpc.T_OFP_TRANSACTION, nil,
+	err := m.C.Func.Call(rpc.T_OFP_TRANSACTION, nil,
 		rpc.UInt32Result(&xid))
 
 	if err != nil {
@@ -66,7 +78,7 @@ func (m *ARPMech) helloHandler(rw of.ResponseWriter, r *of.Request) {
 	rw.Header().Set(of.XIDHeaderKey, xid)
 
 	//var hwDstAddr []byte
-	//err = m.C.R.Call(rpc.T_OFP_PORT_HWADDR,
+	//err = m.BaseMechanismDriver.C.Func.Call(rpc.T_OFP_PORT_HWADDR,
 	//rpc.
 
 	for _, hwaddr := range append([][]byte{l2.HWBcast}, hwDstAddr) {
@@ -104,7 +116,11 @@ func (m *ARPMech) helloHandler(rw of.ResponseWriter, r *of.Request) {
 	}
 }
 
-func (m *ARPMech) packetHandler(rw of.ResponseWriter, r *of.Request) {
+func (m *ARPMechanism) Disable() {
+	m.BaseMechanismDriver.Disable()
+}
+
+func (m *ARPMechanism) packetHandler(rw of.ResponseWriter, r *of.Request) {
 	var packet ofp.PacketIn
 	if _, err := packet.ReadFrom(r.Body); err != nil {
 		log.DebugLog("arp/ARP_PACKET_HANDLER",
@@ -140,7 +156,7 @@ func (m *ARPMech) packetHandler(rw of.ResponseWriter, r *of.Request) {
 	var srcHWAddr []byte
 	portNo := p.Match.Field(ofp.XMT_OFB_IN_PORT).Value.UInt32()
 
-	err := m.C.R.Call(rpc.T_OFP_PORT_HWADDR,
+	err := m.C.Func.Call(rpc.T_OFP_PORT_HWADDR,
 		rpc.UInt16Param(uint16(portNo)),
 		rpc.ByteSliceResult(&srcHWAddr))
 
@@ -178,7 +194,7 @@ func (m *ARPMech) packetHandler(rw of.ResponseWriter, r *of.Request) {
 	}
 }
 
-func (m *ARPMech) resolveCaller(param rpc.Param, result rpc.Result) error {
+func (m *ARPMechanism) resolveCaller(param rpc.Param, result rpc.Result) error {
 	var srcIPAddr, dstIPAddr []byte
 	var portNo uint16
 
@@ -195,7 +211,7 @@ func (m *ARPMech) resolveCaller(param rpc.Param, result rpc.Result) error {
 	}
 
 	var srcHWAddr []byte
-	err = m.C.R.Call(rpc.T_OFP_PORT_HWADDR,
+	err = m.C.Func.Call(rpc.T_OFP_PORT_HWADDR,
 		rpc.UInt16Param(),
 		rpc.ByteSliceResult(&srcHWaddr))
 
@@ -235,13 +251,13 @@ func (m *ARPMech) resolveCaller(param rpc.Param, result rpc.Result) error {
 		return err
 	}
 
-	if err = m.C.Conn.Send(r); err != nil {
+	if err = m.C.Switch.Conn().Send(r); err != nil {
 		log.ErrorLog("arp/ARP_RESOLVE",
 			"Failed to send an ARP request: ", err)
 		return err
 	}
 
-	if err = m.C.Conn.Flush(); err != nil {
+	if err = m.C.Switch.Conn().Flush(); err != nil {
 		log.ErrorLog("arp/ARP_RESOLVE",
 			"Failed to flush data to connection: ", err)
 		return err

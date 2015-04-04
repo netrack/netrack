@@ -29,7 +29,7 @@ func (m *AddressMgmt) showHandler(rw http.ResponseWriter, r *http.Request) {
 	var caller rpc.ProcCaller
 	dpid := httputil.Param(r, "dpid")
 
-	err := m.C.R.Call(rpc.T_DATAPATH, rpc.StringParam(dpid), rpc.ProcCallerResult(&caller))
+	err := m.C.R.Call(rpc.T_DATAPATH, rpc.StringParam(s), rpc.ProcCallerResult(&caller))
 	if err != nil {
 		fmt.Println(err)
 		return

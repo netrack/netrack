@@ -5,7 +5,6 @@ import (
 	"net"
 	"sort"
 	"sync"
-	"time"
 
 	"github.com/netrack/net/iana"
 	"github.com/netrack/netrack/log"
@@ -14,6 +13,11 @@ import (
 	"github.com/netrack/openflow"
 	"github.com/netrack/openflow/ofp.v13"
 )
+
+func init() {
+	constructor := mech.MechanismDriverConstructorFunc(NewIPMechanism)
+	mech.RegisterMechanismDriver("ipv4-mechanism", constructor)
+}
 
 const (
 	StaticRoute    RouteType = "S"
@@ -92,27 +96,37 @@ func (t *RoutingTable) Swap(i, j int) {
 	t.routes[i], t.routes[j] = t.routes[j], t.routes[i]
 }
 
-type IPMech struct {
-	C *mech.OFPContext
+type IPMechanism struct {
+	mech.BaseMechanismDriver
 	T RoutingTable
+
+	//ARP  *ARPMech
+	//ICMP *ICMPMech
 }
 
-func (m *IPMech) Initialize(c *mech.OFPContext) {
-	m.C = c
+func NewIPMechanism() mech.MechanismDriver {
+	return &IPMechanism{}
+}
+
+// Enable implements MechanismDriver interface
+func (m *IPMechanism) Enable(c *mech.MechanismDriverContext) {
+	m.BaseMechanismDriver.Enable(c)
 
 	//m.C.Mux.HandleFunc(of.T_HELLO, m.helloHandler)
-
 	log.InfoLog("ip/INIT_DONE", "IP mechanism successfully intialized")
 }
 
-func (m *IPMech) helloHandler(rw of.ResponseWriter, r *of.Request) {
-	go func() {
-		time.Sleep(time.Second * 7)
-		//m.AddRoute(RouteEntry{StaticRoute, })
-	}()
+// Activate implements MechanismDriver interface
+func (m *IPMechanism) Activate() {
+	//m.AddRoute(RouteEntry{StaticRoute, })
 }
 
-func (m *IPMech) addRoute(entry RouteEntry) error {
+// Disable implements MechanismDriver interface
+func (m *IPMechanism) Disable() {
+	// pass
+}
+
+func (m *IPMechanism) addRoute(entry RouteEntry) error {
 	//_, netw, _ := net.ParseCIDR(s)
 
 	if err := m.T.Append(entry); err != nil {
@@ -124,7 +138,7 @@ func (m *IPMech) addRoute(entry RouteEntry) error {
 	return nil
 }
 
-func (m *IPMech) packetHandler(rw *of.ResponseWriter, r *of.Request) {
+func (m *IPMechanism) packetHandler(rw *of.ResponseWriter, r *of.Request) {
 	var packet ofp.PacketIn
 
 	if _, err := packet.ReadFrom(r.Body); err != nil {
@@ -168,10 +182,7 @@ func (m *IPMech) packetHandler(rw *of.ResponseWriter, r *of.Request) {
 	var srcHWAddr []byte
 
 	// Get switch port source hardware address
-	err := m.C.R.Call(rpc.T_OFP_PORT_HWADDR,
-		rpc.UInt16Param(uint16(portNo)),
-		rpc.ByteSliceResult(&srcHWAddr))
-
+	srcHWAddr, err := m.C.Switch.PortHWAddr(int(portNo))
 	if err != nil {
 		log.ErrorLog("ip/PACKET_HANDLER",
 			"Failed to retrieve port hardware address: ", err)
@@ -211,13 +222,13 @@ func (m *IPMech) packetHandler(rw *of.ResponseWriter, r *of.Request) {
 		return
 	}
 
-	if err = m.C.Conn.Send(r); err != nil {
+	if err = m.C.Switch.Conn().Send(r); err != nil {
 		log.Errorlog("ip/PACKET_HANDLER",
 			"Failed to write request: ", err)
 		return
 	}
 
-	if err = m.C.Conn.Flush(); err != nil {
+	if err = m.C.Switch.Conn().Flush(); err != nil {
 		log.ErrorLog("ip/PACKET_HANDLER",
 			"Failed to send ofp_flow_mode message: ", err)
 	}

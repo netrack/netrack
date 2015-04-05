@@ -1,87 +1,72 @@
 package controller
 
 import (
-	"errors"
-	"fmt"
-	"log"
 	"net/http"
 
 	"github.com/netrack/netrack/httputil"
+	"github.com/netrack/netrack/log"
 	"github.com/netrack/netrack/mechanism"
-	"github.com/netrack/netrack/mechanism/rpc"
 	"github.com/netrack/openflow"
 )
 
+// C represents OpenFlow controller.
 type C struct {
 	Addr string
 
-	// swManager manages switch connections
-	swManager *mech.SwitchManager
+	// switchManager manages switch connections.
+	switchManager mech.SwitchManager
 
-	// mdManager manages mechanism drivers
-	mdManager *mech.MechanismDriverManager
-
-	httpc *mech.HTTPContext
+	// httpManager manages HTTP drivers.
+	httpManager mech.HTTPDriverManager
 }
 
 func (c *C) ListenAndServe() {
-	c.serveHTTP()
-	c.serveOFP()
+	c.initializeHTTPDrivers()
+	c.initializeSwitches()
 }
 
-func (c *C) serveOFP() {
-	var conn of.OFPConn
+func (c *C) initializeSwitches() {
 	l, err := of.Listen("tcp", c.Addr)
 	if err != nil {
+		log.ErrorLog("controller/LISTEN_AND_SERVE_OFP_ERR",
+			"Failed to serve OFP: ", err)
 		return
 	}
 
 	for {
-		conn, err = l.AcceptOFP()
+		conn, err := l.AcceptOFP()
 		if err != nil {
+			log.ErrorLog("controller/ACCEPT_OFP_CONN_ERR",
+				"Failed to accept OFP connection: ", err)
 			return
 		}
 
-		device := &mech.Switch{Conn: conn, Drv: c.OFPDrv}
-		c.devices = append(c.devices, device)
-		go device.Boot()
+		go func() {
+			if err := c.switchManager.CreateSwitch(conn); err != nil {
+				log.ErrorLog("controller/CREATE_SWITCH_ERR",
+					"Failed to create a new switch: ", err)
+			}
+		}()
 	}
 }
 
-func (c *C) serveHTTP() {
-	mux := httputil.NewServeMux()
-	c.httpc = &mech.HTTPContext{rpc.New(), mux}
-	c.httpc.R.RegisterFunc(rpc.T_DATAPATH, c.datapath)
-
-	for _, drv := range c.HTTPDrv {
-		drv.Initialize(c.httpc)
+func (c *C) initializeHTTPDrivers() {
+	context := &mech.HTTPDriverContext{
+		Mux:           httputil.NewServeMux(),
+		SwitchManager: &c.switchManager,
 	}
+
+	// activate registered HTTP drivers.
+	c.httpManager.Enable(context)
 
 	//FIXME: make address configurable
-	s := &http.Server{Addr: ":8080", Handler: mux}
+	s := &http.Server{Addr: ":8080", Handler: context.Mux}
+
+	// Start serving.
 	go func() {
-		log.Fatal(s.ListenAndServe())
+		if err := s.ListenAndServe(); err != nil {
+			log.ErrorLog("controller/LISTEN_AND_SERVE_HTTP_ERR",
+				"Failed to serve HTTP: ", err)
+		}
 	}()
-}
-
-func (c *C) datapath(param rpc.Param, result rpc.Result) error {
-	var id, dpid string
-
-	if err := param.Obtain(&id); err != nil {
-		return nil
-	}
-
-	for _, device := range c.devices {
-		err := device.C.R.Call(rpc.T_DATAPATH_ID, nil, rpc.StringResult(&dpid))
-		if err != nil {
-			return err
-		}
-
-		fmt.Println(dpid, id)
-		if dpid == id {
-			return result.Return(device.C.R)
-		}
-	}
-
-	return errors.New("datapath not found")
 }

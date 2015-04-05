@@ -3,37 +3,197 @@ package ofp
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"strings"
 
 	"github.com/netrack/netrack/log"
+	"github.com/netrack/netrack/mechanism"
 	"github.com/netrack/openflow"
 	"github.com/netrack/openflow/ofp.v13"
 )
 
 func init() {
-	constructor := mech.SwitchConstructor(NewSwitch)
+	constructor := mech.SwitchConstructorFunc(NewSwitch)
 	mech.RegisterSwitch("OFP/1.3", constructor)
 }
 
 // Switch handles connections with OpenFlow 1.3 switches
 type Switch struct {
-	// connection to openflow switch
+	// Connection to openflow switch
 	conn of.OFPConn
 
-	// description of switch ports
-	ports []ofp.Port
+	// Description of switch ports
+	ports ofp.Ports
 
-	// list of switch features
+	// List of switch features
 	features ofp.SwitchFeatures
 }
 
+// NewSwitch returns new instance of a Switch.
 func NewSwitch() mech.Switch {
 	return &Switch{}
 }
 
 // Boot implements Switch interface
 func (s *Switch) Boot(c of.OFPConn) error {
+	// Save connection instance
+	s.conn = c
+
+	// Send ofp_hello message to complete handshake.
+	r, err := of.NewRequest(of.T_HELLO, nil)
+	if err != nil {
+		log.ErrorLog("switch/SWITCH_BOOT_ERR",
+			"Failed to create OpenFlow request: ", err)
+
+		return err
+	}
+
+	if err = c.Send(r); err != nil {
+		log.ErrorLog("switch/SWITCH_BOOT_ERR",
+			"Failed to send ofp_hello message:", err)
+
+		return err
+	}
+
+	// Send ofp_features_request to retrieve datapath id.
+	r, err = of.NewRequest(of.T_FEATURES_REQUEST, nil)
+	if err != nil {
+		log.ErrorLog("switch/SWITCH_BOOT_ERR",
+			"Failed to create OpenFlow request: ", err)
+
+		return err
+	}
+
+	if err = c.Send(r); err != nil {
+		log.ErrorLog("switch/SWITCH_BOOT_ERR",
+			"Failed to send ofp_features_request message:", err)
+
+		return err
+	}
+
+	// Send ofp_multipart_request to retrieve port descriptions.
+	body := of.NewReader(&ofp.MultipartRequest{Type: ofp.MP_PORT_DESC})
+	r, err = of.NewRequest(of.T_MULTIPART_REQUEST, body)
+	if err != nil {
+		log.ErrorLog("switch/SWITCH_BOOT_ERR",
+			"Failed to create OpenFlow request: ", err)
+
+		return err
+	}
+
+	if err = c.Send(r); err != nil {
+		log.ErrorLog("switch/SWITCH_BOOT_ERR",
+			"Failed to send ofp_multipart_request message: ", err)
+
+		return err
+	}
+
+	if err = c.Flush(); err != nil {
+		log.ErrorLog("switch/SWITCH_BOOT_ERR",
+			"Failed to flush requests to switch: ", err)
+
+		return err
+	}
+
+	errCh, doneCh := make(chan error, 2), make(chan bool, 2)
+
+	done := func() {
+		doneCh <- true
+	}
+
+	echoHandler := func(rw of.ResponseWriter, r *of.Request) {
+		rw.Header().Set(of.VersionHeaderKey, ofp.VERSION)
+		rw.Header().Set(of.TypeHeaderKey, of.T_ECHO_REPLY)
+
+		if err := rw.WriteHeader(); err != nil {
+			log.ErrorLog("ofp/ECHO_SEND_ECHO_REPLY",
+				"Failed to send ofp_echo_reply: ", err)
+		}
+	}
+
+	featuresHandler := func(rw of.ResponseWriter, r *of.Request) {
+		defer done()
+
+		if _, err := s.features.ReadFrom(r.Body); err != nil {
+			log.ErrorLog("ofp/FEATURES_READ_ERR",
+				"Failed to read ofp_features_reply: ", err)
+
+			errCh <- err
+		}
+	}
+
+	multipartHandler := func(rw of.ResponseWriter, r *of.Request) {
+		var packet ofp.MultipartReply
+
+		defer done()
+
+		if _, err := of.ReadAllFrom(r.Body, &packet); err != nil {
+			log.ErrorLog("switch/SWITCH_BOOT_ERR",
+				"Failed to read ofp_multipart_reply message: ", err)
+
+			errCh <- err
+			return
+		}
+
+		if _, err := of.ReadAllFrom(r.Body, &s.ports); err != nil {
+			log.ErrorLog("switch/SWITCH_BOOT_ERR",
+				"Failed to read ofp_port values: ", err)
+
+			errCh <- err
+			return
+		}
+	}
+
+	mux := of.NewServeMux()
+	mux.HandleFunc(of.T_FEATURES_REPLY, featuresHandler)
+	mux.HandleFunc(of.T_MULTIPART_REPLY, multipartHandler)
+	mux.HandleFunc(of.T_ECHO_REQUEST, echoHandler)
+
+	exitCh := make(chan bool)
+
+	run := func(count int, fn func() error) {
+		var done int
+
+		for {
+			select {
+			case <-doneCh:
+				if done++; done == count {
+					exitCh <- true
+					return
+				}
+
+			default:
+				if err := fn(); err != nil {
+					errCh <- err
+					return
+				}
+			}
+		}
+	}
+
+	go run(2, func() error {
+		r, err := c.Receive()
+		if err != nil {
+			log.ErrorLog("switch/SWITCH_BOOT_ERR",
+				"Failed receive next OpenFlow message: ", err)
+
+			return err
+		}
+
+		mux.Serve(&of.Response{Conn: c}, r)
+		return nil
+	})
+
+	select {
+	case err := <-errCh:
+		return err
+
+	case <-exitCh:
+		return nil
+	}
+
+	return nil
 }
 
 // Conn implements Switch interface
@@ -66,7 +226,7 @@ func (s *Switch) ID() string {
 // Name implements Switch interface
 func (s *Switch) Name() string {
 	for _, port := range s.ports {
-		if port.portNo == ofp.P_LOCAL {
+		if port.PortNo == ofp.P_LOCAL {
 			log.DebugLog("switch/SWITCH_NAME",
 				"Found local port name: ", string(port.Name))
 
@@ -84,7 +244,7 @@ func (s *Switch) Name() string {
 func (s *Switch) PortNameList() []string {
 	var names []string
 
-	for _, port := range m.ports {
+	for _, port := range s.ports {
 		if port.PortNo != ofp.P_LOCAL {
 			names = append(names, string(port.Name))
 		}
@@ -95,10 +255,10 @@ func (s *Switch) PortNameList() []string {
 
 // PortName implements Switch interface
 func (s *Switch) PortName(p int) (string, error) {
-	portNo := uint32(p)
+	portNo := ofp.PortNo(p)
 
 	for _, port := range s.ports {
-		if port.PortNo == portNo && port.portNo != ofp.P_LOCAL {
+		if port.PortNo == portNo && port.PortNo != ofp.P_LOCAL {
 			log.DebugLog("switch/PORT_NAME",
 				"Found port name: ", string(port.Name))
 
@@ -109,14 +269,14 @@ func (s *Switch) PortName(p int) (string, error) {
 	log.DebugLog("switch/PORT_NAME_ERR",
 		"Requested port not found: ", portNo)
 
-	return errors.New("switch: port does not exist")
+	return "", errors.New("switch: port does not exist")
 }
 
 // PortHWAddrList implements Switch interface
 func (s *Switch) PortHWAddrList() [][]byte {
 	var hwaddrs [][]byte
 
-	for _, port := range m.ports {
+	for _, port := range s.ports {
 		hwaddrs = append(hwaddrs, []byte(port.HWAddr))
 	}
 
@@ -125,10 +285,10 @@ func (s *Switch) PortHWAddrList() [][]byte {
 
 // PortHWAddr implements Switch interface
 func (s *Switch) PortHWAddr(p int) ([]byte, error) {
-	portNo := uint32(p)
+	portNo := ofp.PortNo(p)
 
 	for _, port := range s.ports {
-		if port.PortNo == portNo && port.portNo != ofp.P_LOCAL {
+		if port.PortNo == portNo && port.PortNo != ofp.P_LOCAL {
 			log.DebugLog("switch/PORT_HWADDR",
 				"Found port hardware address: ", port.HWAddr)
 
@@ -139,5 +299,5 @@ func (s *Switch) PortHWAddr(p int) ([]byte, error) {
 	log.DebugLog("switch/PORT_HWADDR_ERR",
 		"Requested port not found: ", portNo)
 
-	return errors.New("switch: port does not exist")
+	return nil, errors.New("switch: port does not exist")
 }

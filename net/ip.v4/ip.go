@@ -6,10 +6,10 @@ import (
 	"sort"
 	"sync"
 
-	"github.com/netrack/net/iana"
+	//"github.com/netrack/net/iana"
 	"github.com/netrack/netrack/log"
 	"github.com/netrack/netrack/mechanism"
-	"github.com/netrack/netrack/mechanism/rpc"
+	//"github.com/netrack/netrack/mechanism/rpc"
 	"github.com/netrack/openflow"
 	"github.com/netrack/openflow/ofp.v13"
 )
@@ -70,10 +70,12 @@ func (t *RoutingTable) Append(entry RouteEntry) error {
 
 	t.routes = append(t.routes, entry)
 	sort.Sort(t)
+
+	return nil
 }
 
 func (t *RoutingTable) Lookup(ipaddr net.IP) (net.IPNet, error) {
-	return nil, nil
+	return net.IPNet{}, nil
 }
 
 func (t *RoutingTable) Len() int {
@@ -113,7 +115,7 @@ func (m *IPMechanism) Enable(c *mech.MechanismDriverContext) {
 	m.BaseMechanismDriver.Enable(c)
 
 	//m.C.Mux.HandleFunc(of.T_HELLO, m.helloHandler)
-	log.InfoLog("ip/INIT_DONE", "IP mechanism successfully intialized")
+	log.InfoLog("ip/ENABLE", "Mechanism IP enabled")
 }
 
 // Activate implements MechanismDriver interface
@@ -139,97 +141,97 @@ func (m *IPMechanism) addRoute(entry RouteEntry) error {
 }
 
 func (m *IPMechanism) packetHandler(rw *of.ResponseWriter, r *of.Request) {
-	var packet ofp.PacketIn
+	//var packet ofp.PacketIn
 
-	if _, err := packet.ReadFrom(r.Body); err != nil {
-		log.ErrorLog("ip/PACKET_HANDLER",
-			"Failed to read ofp_packet_in message: ", err)
-		return
-	}
+	//if _, err := packet.ReadFrom(r.Body); err != nil {
+	//log.ErrorLog("ip/PACKET_HANDLER",
+	//"Failed to read ofp_packet_in message: ", err)
+	//return
+	//}
 
-	if packet.TableID != TableIPv4 {
-		log.DebugLog("ip/PACKET_HANDLER",
-			"Received packet from wrong table")
-		return
-	}
+	//if packet.TableID != TableIPv4 {
+	//log.DebugLog("ip/PACKET_HANDLER",
+	//"Received packet from wrong table")
+	//return
+	//}
 
-	var pduL2 l2.EthernetII
-	var pduL3 l3.IPv4
+	//var pduL2 l2.EthernetII
+	//var pduL3 l3.IPv4
 
-	if _, err := of.ReadAllFrom(r.Body, &pduL2, &pduL3); err != nil {
-		log.ErrorLog("ip/PACKET_HANDLER",
-			"Failed to unmarshal arrived packet: ", err)
-		return
-	}
+	//if _, err := of.ReadAllFrom(r.Body, &pduL2, &pduL3); err != nil {
+	//log.ErrorLog("ip/PACKET_HANDLER",
+	//"Failed to unmarshal arrived packet: ", err)
+	//return
+	//}
 
-	netw, err := m.T.Lookup(pduL3.Dst)
-	if err != nil {
-		log.DebugLog("ip/PACKET_HANDLER",
-			"Failed to find route: ", err)
+	//netw, err := m.T.Lookup(pduL3.Dst)
+	//if err != nil {
+	//log.DebugLog("ip/PACKET_HANDLER",
+	//"Failed to find route: ", err)
 
-		//TODO: Send ofp_packet_out ICMP destination network unreachable
-		return
-	}
+	////TODO: Send ofp_packet_out ICMP destination network unreachable
+	//return
+	//}
 
-	//TODO: Send ARP query to resolve next hop ip address to hw address
+	////TODO: Send ARP query to resolve next hop ip address to hw address
 
-	portNo := packet.Match.Field(ofp.XMT_OFB_IN_PORT).Value.UInt32()
-	match := ofp.Match{ofp.MT_OXM, []ofp.OXM{
-		ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_ETH_TYPE, of.Bytes(iana.ETHT_IPV4), nil},
-		ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_IPV4_DST, of.Bytes(netw.IP), of.Bytes(netw.Mask)},
-	}}
+	//portNo := packet.Match.Field(ofp.XMT_OFB_IN_PORT).Value.UInt32()
+	//match := ofp.Match{ofp.MT_OXM, []ofp.OXM{
+	//ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_ETH_TYPE, of.Bytes(iana.ETHT_IPV4), nil},
+	//ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_IPV4_DST, of.Bytes(netw.IP), of.Bytes(netw.Mask)},
+	//}}
 
-	var srcHWAddr []byte
+	//var srcHWAddr []byte
 
-	// Get switch port source hardware address
-	srcHWAddr, err := m.C.Switch.PortHWAddr(int(portNo))
-	if err != nil {
-		log.ErrorLog("ip/PACKET_HANDLER",
-			"Failed to retrieve port hardware address: ", err)
-		return err
-	}
+	//// Get switch port source hardware address
+	//srcHWAddr, err := m.C.Switch.PortHWAddr(int(portNo))
+	//if err != nil {
+	//log.ErrorLog("ip/PACKET_HANDLER",
+	//"Failed to retrieve port hardware address: ", err)
+	//return err
+	//}
 
-	dstHWAddr := net.HardwareAddr{0, 0, 0, 0, 0, byte(portNo)}
+	//dstHWAddr := net.HardwareAddr{0, 0, 0, 0, 0, byte(portNo)}
 
-	// Change source and destination hardware addresses
-	dsthw := ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_ETH_DST, of.Bytes(dstHWAddr), nil}
-	srchw := ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_ETH_SRC, of.Bytes(srcHWAddr), nil}
+	//// Change source and destination hardware addresses
+	//dsthw := ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_ETH_DST, of.Bytes(dstHWAddr), nil}
+	//srchw := ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_ETH_SRC, of.Bytes(srcHWAddr), nil}
 
-	instr := ofp.Instructions{ofp.InstructionActions{
-		ofp.IT_APPLY_ACTIONS,
-		ofp.Actions{
-			ofp.ActionSetField{dsthw},
-			ofp.ActionSetField{srchw},
-			ofp.Action{ofp.AT_DEC_NW_TTL},
-			ofp.ActionOutput{ofp.PortNo(portNo), 0},
-		},
-	}}
+	//instr := ofp.Instructions{ofp.InstructionActions{
+	//ofp.IT_APPLY_ACTIONS,
+	//ofp.Actions{
+	//ofp.ActionSetField{dsthw},
+	//ofp.ActionSetField{srchw},
+	//ofp.Action{ofp.AT_DEC_NW_TTL},
+	//ofp.ActionOutput{ofp.PortNo(portNo), 0},
+	//},
+	//}}
 
-	// TODO: priority based on administrative distance
-	// TODO: set expire timeout
-	r, err := of.NewRequest(of.T_FLOW_MOD, of.NewReader(&ofp.FlowMod{
-		TableID:      TableIPv4,
-		Priority:     1,
-		Command:      ofp.FC_ADD,
-		BufferID:     ofp.NO_BUFFER,
-		Match:        match,
-		Instructions: instr,
-	}))
+	//// TODO: priority based on administrative distance
+	//// TODO: set expire timeout
+	//r, err := of.NewRequest(of.T_FLOW_MOD, of.NewReader(&ofp.FlowMod{
+	//TableID:      TableIPv4,
+	//Priority:     1,
+	//Command:      ofp.FC_ADD,
+	//BufferID:     ofp.NO_BUFFER,
+	//Match:        match,
+	//Instructions: instr,
+	//}))
 
-	if err != nil {
-		log.ErrorLog("ip/PACKET_HANDLER",
-			"Failed to create new request: ", err)
-		return
-	}
+	//if err != nil {
+	//log.ErrorLog("ip/PACKET_HANDLER",
+	//"Failed to create new request: ", err)
+	//return
+	//}
 
-	if err = m.C.Switch.Conn().Send(r); err != nil {
-		log.Errorlog("ip/PACKET_HANDLER",
-			"Failed to write request: ", err)
-		return
-	}
+	//if err = m.C.Switch.Conn().Send(r); err != nil {
+	//log.Errorlog("ip/PACKET_HANDLER",
+	//"Failed to write request: ", err)
+	//return
+	//}
 
-	if err = m.C.Switch.Conn().Flush(); err != nil {
-		log.ErrorLog("ip/PACKET_HANDLER",
-			"Failed to send ofp_flow_mode message: ", err)
-	}
+	//if err = m.C.Switch.Conn().Flush(); err != nil {
+	//log.ErrorLog("ip/PACKET_HANDLER",
+	//"Failed to send ofp_flow_mode message: ", err)
+	//}
 }

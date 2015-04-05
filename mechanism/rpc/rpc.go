@@ -6,31 +6,40 @@ import (
 )
 
 const (
-	T_ARP_RESOLVE Type = iota
-	T_IPV4_ADD_ROUTE
-	T_IPV4_DELETE_ROUTE
-
-	T_OFP
+	T_ARP_RESOLVE       Type = "arp.respolve"
+	T_IPV4_ADD_ROUTE    Type = "ipv4.add_route"
+	T_IPV4_DELETE_ROUTE Type = "ipv4.delete_route"
 )
 
-type Type int
+// Type represents name of calling function.
+type Type string
 
+// Param describes types that could be passed as
+// parameters in a function call method.
 type Param interface {
+	// Obtain returns passed parameters.
 	Obtain(...interface{}) error
 }
 
+// Result describes types that could be returned
+// as a result of function call.
 type Result interface {
+	// Return returns function result.
 	Return(...interface{}) error
 }
 
+// ParamFunc is a function adapter for Param interface.
 type ParamFunc func(...interface{}) error
 
+// Obtain implements Param interface.
 func (fn ParamFunc) Obtain(args ...interface{}) error {
 	return fn(args...)
 }
 
+// ResultFunc is a function adapter for Result interface.
 type ResultFunc func(...interface{}) error
 
+// ResultFunc implements Result interface.
 func (fn ResultFunc) Return(args ...interface{}) error {
 	return fn(args...)
 }

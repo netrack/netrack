@@ -5,10 +5,21 @@ import (
 	"github.com/netrack/openflow"
 )
 
+// SwitchContext is a placeholder for mechanism driver context
+// and mechanism drivers for a single switch.
+type SwitchContext struct {
+	// Mechanism driver context.
+	Context *MechanismDriverContext
+
+	// Mechanism driver manager.
+	Mechanism *MechanismDriverManager
+}
+
 // Switch describes instance of openflow device
 type Switch interface {
-	// Boot performs version negotiation and intial switch
-	// configuration on specified openflow connection.
+	// Boot performs version negotiation and initial switch
+	// configuration on specified openflow connection. The
+	// very next step on Boot call is to send ofp_hello message back.
 	Boot(of.OFPConn) error
 
 	// Conn returns connection to OpenFlow switch.
@@ -46,11 +57,12 @@ type SwitchConstructor interface {
 // SwitchConstructorFunc is a function adapted for SwitchConstructor.
 type SwitchConstructorFunc func() Switch
 
+// New implements SwitchConstructor interface.
 func (fn SwitchConstructorFunc) New() Switch {
 	return fn()
 }
 
-var switches map[string]SwitchConstructor
+var switches = make(map[string]SwitchConstructor)
 
 // RegisterSwitch makes a switch available by provided version.
 func RegisterSwitch(version string, s SwitchConstructor) {
@@ -67,6 +79,12 @@ func RegisterSwitch(version string, s SwitchConstructor) {
 	switches[version] = s
 }
 
+// SwitchByVersion returns switch constructor registered for specified version,
+// nil will be returned when there is no required switch constructor.
+func SwitchByVersion(v string) SwitchConstructor {
+	return switches[v]
+}
+
 // SwitchVersionList returns versions of registered switches.
 func SwitchVersionList() []string {
 	var versions []string
@@ -75,7 +93,7 @@ func SwitchVersionList() []string {
 		versions = append(versions, version)
 	}
 
-	return version
+	return versions
 }
 
 // SwitchList returns list of registered switches constructors.

@@ -94,5 +94,4 @@ func (m *MechanismDriverManager) DisableByName(name string) error {
 
 	mechanism.Disable()
 	return nil
-
 }

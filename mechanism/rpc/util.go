@@ -138,18 +138,3 @@ func UInt32Result(u *uint32) Result {
 		return ErrTypeMismatch
 	})
 }
-
-func ProcCallerResult(c *ProcCaller) Result {
-	return ResultFunc(func(args ...interface{}) error {
-		if err := lenHelper(args); err != nil {
-			return err
-		}
-
-		if p, ok := args[0].(ProcCaller); ok {
-			*c = p
-			return nil
-		}
-
-		return ErrTypeMismatch
-	})
-}

@@ -1,41 +1,42 @@
 package rest
 
 import (
-	"fmt"
 	"net/http"
 
-	"github.com/netrack/netrack/httputil"
+	"github.com/netrack/netrack/log"
 	"github.com/netrack/netrack/mechanism"
-	"github.com/netrack/netrack/mechanism/rpc"
 )
+
+func init() {
+	constructor := mech.HTTPDriverConstructorFunc(NewAddressMgmt)
+	mech.RegisterHTTPDriver(constructor)
+}
 
 // IP protocol address management
 type AddressMgmt struct {
-	C *mech.HTTPContext
+	mech.BaseHTTPDriver
 }
 
-func (m *AddressMgmt) Initialize(c *mech.HTTPContext) {
-	m.C = c
+func NewAddressMgmt() mech.HTTPDriver {
+	return &AddressMgmt{}
+}
+
+func (m *AddressMgmt) Enable(c *mech.HTTPDriverContext) {
+	m.BaseHTTPDriver.Enable(c)
 
 	m.C.Mux.HandleFunc("PUT", "/v1/switches/{dpid}/ip/address", m.indexHandler)
 	m.C.Mux.HandleFunc("GET", "/v1/switches/{dpid}/ip/address", m.showHandler)
 	m.C.Mux.HandleFunc("DELETE", "/v1/switches/{dpid}/ip/address", m.deleteHandler)
+
+	log.InfoLog("address_mgmt/ENABLE",
+		"IP address management enabled")
 }
 
 func (m *AddressMgmt) indexHandler(rw http.ResponseWriter, r *http.Request) {
 }
 
 func (m *AddressMgmt) showHandler(rw http.ResponseWriter, r *http.Request) {
-	var caller rpc.ProcCaller
-	dpid := httputil.Param(r, "dpid")
+}
 
-	err := m.C.R.Call(rpc.T_DATAPATH, rpc.StringParam(s), rpc.ProcCallerResult(&caller))
-	if err != nil {
-		fmt.Println(err)
-		return
-	}
-
-	var ports []string
-	err = caller.Call(rpc.T_DATAPATH_PORT_NAMES, nil, rpc.StringSliceResult(&ports))
-	fmt.Println(ports, err)
+func (m *AddressMgmt) deleteHandler(rw http.ResponseWriter, r *http.Request) {
 }

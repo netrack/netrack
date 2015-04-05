@@ -3,7 +3,6 @@ package mech
 import (
 	"sync/atomic"
 
-	"github.com/netrack/netrack/httputil"
 	"github.com/netrack/netrack/log"
 	"github.com/netrack/netrack/mechanism/rpc"
 	"github.com/netrack/openflow"
@@ -12,13 +11,13 @@ import (
 // MechanismDriverContext is an context, that shared among
 // mechanisms enabled for a particular device.
 type MechanismDriverContext struct {
-	// OpenFlow switch instance
+	// OpenFlow switch instance.
 	Switch Switch
 
-	// Pipe to connect mechanism drivers
+	// Pipe to connect mechanism drivers.
 	Func rpc.ProcCaller
 
-	// OpenFlow multiplexer handler
+	// OpenFlow multiplexer handler.
 	Mux *of.ServeMux
 }
 
@@ -80,7 +79,7 @@ func (m *BaseMechanismDriver) Disable() {
 
 // MechanismDriverConstructor is a generic
 // constructor for mechanism drivers.
-type MechanismDriverCostructor interface {
+type MechanismDriverConstructor interface {
 	// New creates a new MechanismDriver instance.
 	New() MechanismDriver
 }
@@ -89,11 +88,12 @@ type MechanismDriverCostructor interface {
 // MechanismDriverCostructor.
 type MechanismDriverConstructorFunc func() MechanismDriver
 
+// New implements MechanismDriverConstructor interface.
 func (fn MechanismDriverConstructorFunc) New() MechanismDriver {
 	return fn()
 }
 
-var mechanisms map[string]MechanismDriverConstructor
+var mechanisms = make(map[string]MechanismDriverConstructor)
 
 // RegisterMechanism makes a mechanism available by provided name
 func RegisterMechanismDriver(name string, mechanism MechanismDriverConstructor) {
@@ -110,6 +110,13 @@ func RegisterMechanismDriver(name string, mechanism MechanismDriverConstructor) 
 	mechanisms[name] = mechanism
 }
 
+// MechanismDriverByName returns MechanismDriverConstructor
+// registered for specified name, nil will be returned when
+// there is no required constructor.
+func MechanismDriverByName(name string) MechanismDriverConstructor {
+	return mechanisms[name]
+}
+
 // MechanismDriverNameList returns names of registered mechanism drivers.
 func MechanismDriverNameList() []string {
 	var names []string
@@ -124,20 +131,11 @@ func MechanismDriverNameList() []string {
 // MechanismDriverList returns list of registered
 // mechanism drivers constructors.
 func MechanismDriverList() []MechanismDriverConstructor {
-	var list []MechanismDriverCostructor
+	var list []MechanismDriverConstructor
 
 	for _, driver := range mechanisms {
-		list = append(driver, list)
+		list = append(list, driver)
 	}
 
 	return list
-}
-
-type HTTPContext struct {
-	R   rpc.ProcCaller
-	Mux *httputil.ServeMux
-}
-
-type HTTPDriver interface {
-	Initialize(*HTTPContext)
 }

@@ -1,20 +1,15 @@
 package rest
 
 import (
-	"fmt"
-	"net/http"
-
-	"github.com/netrack/netrack/httputil"
 	"github.com/netrack/netrack/mechanism"
-	"github.com/netrack/netrack/mechanism/rpc"
 )
 
 type NeighMgmt struct {
-	C *mech.HTTPContext
+	mech.BaseHTTPDriver
 }
 
-func (m *NeighMgmt) Initialize(c *mech.HTTPContext) {
-	m.C = c
+func (m *NeighMgmt) Enable(c *mech.HTTPDriverContext) {
+	m.BaseHTTPDriver.Enable(c)
 
 	m.C.Mux.HandleFunc("PUT", "/v1/switches/{dpid}/ip/neigh", nil)
 	m.C.Mux.HandleFunc("GET", "/v1/switches/{dpid}/ip/neigh", nil)

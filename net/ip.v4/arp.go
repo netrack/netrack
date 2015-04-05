@@ -20,8 +20,6 @@ func init() {
 	mech.RegisterMechanismDriver("arp-mechanism", constructor)
 }
 
-const TableARP ofp.Table = 2
-
 type NeighEntry struct {
 	IPAddr []byte
 	HWAddr []byte
@@ -40,7 +38,11 @@ func (t *NeighTable) Lookup(ipaddr []byte) ([]byte, error) {
 
 type ARPMechanism struct {
 	mech.BaseMechanismDriver
+
 	T NeighTable
+
+	// Table number allocated for the mechanism.
+	tableNo int
 }
 
 func NewARPMechanism() mech.MechanismDriver {
@@ -51,16 +53,24 @@ func NewARPMechanism() mech.MechanismDriver {
 func (m *ARPMechanism) Enable(c *mech.MechanismDriverContext) {
 	m.BaseMechanismDriver.Enable(c)
 
-	m.C.Func.RegisterFunc(rpc.T_ARP_RESOLVE, m.resolveCaller)
-	m.C.Mux.HandleFunc(of.T_PACKET_IN, m.packetHandler)
-
+	//m.C.Mux.HandleFunc(of.T_PACKET_IN, m.packetHandler)
 	log.InfoLog("arp/ENABLE", "Mechanism ARP enabled")
 }
 
 // Activate implements MechanismDriver interface
 func (m *ARPMechanism) Activate() {
-	//m.BaseMechanismDriver.Activate()
+	m.BaseMechanismDriver.Activate()
 
+	// Allocate table for handling arp protocol.
+	tableNo, err := m.C.Switch.AllocateTable()
+	if err != nil {
+		log.ErrorLog("ipv4/ACTIVATE_HOOK",
+			"Failed to allocate a new table: ", err)
+
+		return
+	}
+
+	m.tableNo = tableNo
 	//var xid uint32
 	//err := m.C.Func.Call(rpc.T_OFP_TRANSACTION, nil,
 	//rpc.UInt32Result(&xid))

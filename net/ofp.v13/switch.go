@@ -6,11 +6,17 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/netrack/netrack/log"
 	"github.com/netrack/netrack/mechanism"
 	"github.com/netrack/openflow"
 	"github.com/netrack/openflow/ofp.v13"
+)
+
+var (
+	// ErrTablesAllocate is returned when all tables are allocated.
+	ErrTableAllocate = errors.New("Switch: all tables are allocated")
 )
 
 func init() {
@@ -20,14 +26,20 @@ func init() {
 
 // Switch handles connections with OpenFlow 1.3 switches
 type Switch struct {
-	// Connection to openflow switch
+	// Connection to openflow switch.
 	conn of.OFPConn
 
-	// Description of switch ports
+	// Description of switch ports.
 	ports ofp.Ports
 
-	// List of switch features
+	// List of switch features.
 	features ofp.SwitchFeatures
+
+	// Switch tables allocation.
+	tables []int
+
+	// Lock for tables.
+	lock sync.Mutex
 }
 
 // NewSwitch returns new instance of a Switch.
@@ -221,6 +233,42 @@ func (s *Switch) ID() string {
 	}
 
 	return strings.Join(parts, ":")
+}
+
+// AllocateTable implements Switch interface.
+func (s *Switch) AllocateTable() (int, error) {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+
+	// Make lazy intialization
+	if s.tables == nil {
+		for i := 0; i < int(s.features.NumTables); i++ {
+			s.tables = append(s.tables, i)
+		}
+	}
+
+	// The first table is reserved for protocol matching.
+	if len(s.tables) < 2 {
+		return 0, ErrTableAllocate
+	}
+
+	tableNo := s.tables[1]
+	s.tables = append(s.tables[:1], s.tables[2:]...)
+
+	return tableNo, nil
+}
+
+// ReleaseTable implements Switch interface.
+func (s *Switch) ReleaseTable(tableNo int) {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+
+	// Make at least an effort to protect from bad releases.
+	if len(s.tables) == int(s.features.NumTables) {
+		return
+	}
+
+	s.tables = append(s.tables, tableNo)
 }
 
 // Name implements Switch interface

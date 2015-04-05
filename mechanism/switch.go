@@ -32,6 +32,13 @@ type Switch interface {
 	// which can be interpreted as switch name.
 	Name() string
 
+	// AllocateTables reserves first available table. Error
+	// will be returned if all tables are aquired.
+	AllocateTable() (int, error)
+
+	// ReleaseTable makes table available for other mechanisms.
+	ReleaseTable(int)
+
 	// PortNameList returns names of ports available in a system
 	PortNameList() []string
 

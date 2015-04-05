@@ -6,9 +6,10 @@ import (
 )
 
 const (
-	T_ARP_RESOLVE       Type = "arp.respolve"
-	T_IPV4_ADD_ROUTE    Type = "ipv4.add_route"
-	T_IPV4_DELETE_ROUTE Type = "ipv4.delete_route"
+	ARPResolveFunc      Type = "arp.respolve"
+	IPv4AddAddressFunc  Type = "ipv4.add_address"
+	IPv4AddRouteFunc    Type = "ipv4.add_route"
+	IPv4DeleteRouteFunc Type = "ipv4.delete_route"
 )
 
 // Type represents name of calling function.

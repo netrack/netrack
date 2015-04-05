@@ -100,10 +100,12 @@ func (t *RoutingTable) Swap(i, j int) {
 
 type IPMechanism struct {
 	mech.BaseMechanismDriver
+
+	// IPv4 routing table instance.
 	T RoutingTable
 
-	//ARP  *ARPMech
-	//ICMP *ICMPMech
+	// Table number allocated for the mechanism.
+	tableNo int
 }
 
 func NewIPMechanism() mech.MechanismDriver {
@@ -115,12 +117,23 @@ func (m *IPMechanism) Enable(c *mech.MechanismDriverContext) {
 	m.BaseMechanismDriver.Enable(c)
 
 	//m.C.Mux.HandleFunc(of.T_HELLO, m.helloHandler)
-	log.InfoLog("ip/ENABLE", "Mechanism IP enabled")
+	log.InfoLog("ipv4/ENABLE_HOOK", "Mechanism IP enabled")
 }
 
 // Activate implements MechanismDriver interface
 func (m *IPMechanism) Activate() {
-	//m.AddRoute(RouteEntry{StaticRoute, })
+	m.BaseMechanismDriver.Activate()
+
+	// Allocate table for handling ipv4 protocol.
+	tableNo, err := m.C.Switch.AllocateTable()
+	if err != nil {
+		log.ErrorLog("ipv4/ACTIVATE_HOOK",
+			"Failed to allocate a new table: ", err)
+
+		return
+	}
+
+	m.tableNo = tableNo
 }
 
 // Disable implements MechanismDriver interface

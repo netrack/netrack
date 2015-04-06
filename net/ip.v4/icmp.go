@@ -20,6 +20,8 @@ func init() {
 
 type ICMPMechanism struct {
 	mech.BaseMechanismDriver
+
+	tableNo int
 }
 
 func NewICMPMechanism() mech.MechanismDriver {
@@ -32,7 +34,26 @@ func (m *ICMPMechanism) Enable(c *mech.MechanismDriverContext) {
 	//m.BaseMechanismDriver.C.Func.RegisterFunc(rpc.T_ICMP_ADD_PINGER, m.Add)
 	//m.BaseMechanismDriver.C.Mux.HandleFunc(of.T_PACKET_IN, m.packetInHandler)
 
-	log.InfoLog("icmp/ENABLE", "Mechanism ICMP mechanism enabled")
+	log.InfoLog("icmp/ENABLE_HOOK",
+		"Mechanism ICMP mechanism enabled")
+}
+
+func (m *ICMPMechanism) Activate() {
+	m.BaseMechanismDriver.Activate()
+
+	// Allocate table for handling icmp protocol.
+	tableNo, err := m.C.Switch.AllocateTable()
+	if err != nil {
+		log.ErrorLog("icmp/ACTIVATE_HOOK",
+			"Failed to allocate a new table: ", err)
+
+		return
+	}
+
+	m.tableNo = tableNo
+
+	log.DebugLog("icmp/ACTIVATE_HOOK",
+		"Allocated table: ", tableNo)
 }
 
 func (m *ICMPMechanism) packetInHandler(rw of.ResponseWriter, r *of.Request) {

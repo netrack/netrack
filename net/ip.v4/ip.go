@@ -134,6 +134,9 @@ func (m *IPMechanism) Activate() {
 	}
 
 	m.tableNo = tableNo
+
+	log.DebugLog("ipv4/ACTIVATE_HOOK",
+		"Allocated table: ", tableNo)
 }
 
 // Disable implements MechanismDriver interface

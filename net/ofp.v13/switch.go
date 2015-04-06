@@ -294,7 +294,8 @@ func (s *Switch) PortNameList() []string {
 
 	for _, port := range s.ports {
 		if port.PortNo != ofp.P_LOCAL {
-			names = append(names, string(port.Name))
+			name := strings.TrimRight(string(port.Name), "\u0000")
+			names = append(names, name)
 		}
 	}
 
@@ -307,10 +308,11 @@ func (s *Switch) PortName(p int) (string, error) {
 
 	for _, port := range s.ports {
 		if port.PortNo == portNo && port.PortNo != ofp.P_LOCAL {
+			name := strings.TrimRight(string(port.Name), "\u0000")
 			log.DebugLog("switch/PORT_NAME",
-				"Found port name: ", string(port.Name))
+				"Found port name: ", name)
 
-			return string(port.Name), nil
+			return name, nil
 		}
 	}
 

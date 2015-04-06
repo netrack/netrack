@@ -71,6 +71,10 @@ func (m *ARPMechanism) Activate() {
 	}
 
 	m.tableNo = tableNo
+
+	log.DebugLog("ipv4/ACTIVATE_HOOK",
+		"Allocated table: ", tableNo)
+
 	//var xid uint32
 	//err := m.C.Func.Call(rpc.T_OFP_TRANSACTION, nil,
 	//rpc.UInt32Result(&xid))

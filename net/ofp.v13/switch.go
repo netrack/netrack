@@ -302,26 +302,6 @@ func (s *Switch) PortNameList() []string {
 	return names
 }
 
-// PortName implements Switch interface
-func (s *Switch) PortName(p int) (string, error) {
-	portNo := ofp.PortNo(p)
-
-	for _, port := range s.ports {
-		if port.PortNo == portNo && port.PortNo != ofp.P_LOCAL {
-			name := strings.TrimRight(string(port.Name), "\u0000")
-			log.DebugLog("switch/PORT_NAME",
-				"Found port name: ", name)
-
-			return name, nil
-		}
-	}
-
-	log.DebugLog("switch/PORT_NAME_ERR",
-		"Requested port not found: ", portNo)
-
-	return "", errors.New("switch: port does not exist")
-}
-
 // PortHWAddrList implements Switch interface
 func (s *Switch) PortHWAddrList() [][]byte {
 	var hwaddrs [][]byte
@@ -331,6 +311,24 @@ func (s *Switch) PortHWAddrList() [][]byte {
 	}
 
 	return hwaddrs
+}
+
+// PortNo implements Switch interface
+func (s *Switch) PortNo(name string) (int, error) {
+	for _, port := range s.ports {
+		portName := strings.TrimRight(string(port.Name), "\u0000")
+		if portName == name && port.PortNo != ofp.P_LOCAL {
+			log.DebugLog("switch/PORT_NAME",
+				"Found port number: ", port.PortNo)
+
+			return int(port.PortNo), nil
+		}
+	}
+
+	log.DebugLog("switch/PORT_NAME_ERR",
+		"Requested port not found: ", name)
+
+	return 0, errors.New("switch: port does not exist")
 }
 
 // PortHWAddr implements Switch interface

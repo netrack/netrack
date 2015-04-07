@@ -42,13 +42,13 @@ type Switch interface {
 	// PortNameList returns names of ports available in a system
 	PortNameList() []string
 
-	// PortName returns name of the specified port, an error will be
-	// returned if port does not exist in a system.
-	PortName(int) (string, error)
-
 	// PortHWAddrList returns list of hardware addresses
 	// of ports available in a system.
 	PortHWAddrList() [][]byte
+
+	// PortNo returns number of the specified port name, an error
+	// will be returned if port does not exist in a system.
+	PortNo(string) (int, error)
 
 	// PortHWAddr returns hardware address of the specified port,
 	// an error will be returned if port does not exist in a system.

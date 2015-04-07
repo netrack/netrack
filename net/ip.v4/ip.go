@@ -141,10 +141,26 @@ func (m *IPMechanism) Activate() {
 
 // Disable implements MechanismDriver interface
 func (m *IPMechanism) Disable() {
+	m.BaseMechanismDriver.Disable()
 	// pass
 }
 
-func (m *IPMechanism) addRoute(entry RouteEntry) error {
+// getAddressFunc returnes IPv4 address and network mask in a result
+// variable, error will be returned if neither port exists, nor IPv4
+// address assigned to required port.
+func (m *IPMechanism) getAddressFunc(param rpc.Param, result rpc.Result) error {
+	return nil
+}
+
+func (m *IPMechanism) addAddressFunc(param rpc.Param, result rpc.Result) error {
+	return nil
+}
+
+func (m *IPMechanism) deleteAddressFunc(param rpc.Param, result rpc.Result) error {
+	return nil
+}
+
+func (m *IPMechanism) addRouteFunc(entry RouteEntry) error {
 	//_, netw, _ := net.ParseCIDR(s)
 
 	if err := m.T.Append(entry); err != nil {

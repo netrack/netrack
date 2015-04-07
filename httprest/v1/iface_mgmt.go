@@ -65,6 +65,8 @@ func (m *IFaceMgmt) indexHandler(rw http.ResponseWriter, r *http.Request) {
 		log.ErrorLog("iface_mgmt/INDEX_HANDLER",
 			"Failed to find requested datapath: ", err)
 
+		f.Write(rw, r, models.Error{fmt.Sprintf("switch '%s' not found", dpid)})
+		rw.WriteHeader(http.StatusNotFound)
 		return
 	}
 

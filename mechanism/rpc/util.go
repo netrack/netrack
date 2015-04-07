@@ -18,7 +18,7 @@ func lenHelper(args []interface{}) error {
 	return nil
 }
 
-func UInt16Param(u uint16) Param {
+func Uint16Param(u uint16) Param {
 	return ParamFunc(func(args ...interface{}) error {
 		if err := lenHelper(args); err != nil {
 			return err
@@ -124,7 +124,7 @@ func StringSliceResult(s *[]string) Result {
 	})
 }
 
-func UInt32Result(u *uint32) Result {
+func Uint32Result(u *uint32) Result {
 	return ResultFunc(func(args ...interface{}) error {
 		if err := lenHelper(args); err != nil {
 			return err
@@ -136,5 +136,21 @@ func UInt32Result(u *uint32) Result {
 		}
 
 		return ErrTypeMismatch
+	})
+}
+
+func CompositeResult(results ...Result) Result {
+	return ResultFunc(func(args ...interface{}) error {
+		if len(args) != len(results) {
+			return ErrLenMismatch
+		}
+
+		for index, result := range results {
+			if err := result.Return(args[index]); err != nil {
+				return err
+			}
+		}
+
+		return nil
 	})
 }

@@ -32,7 +32,7 @@ func (m *NeighMgmt) Enable(c *mech.HTTPDriverContext) {
 	m.C.Mux.HandleFunc("GET", "/v1/switches/{dpid}/ipv4/neigh", m.indexHandler)
 	m.C.Mux.HandleFunc("DELETE", "/v1/switches/{dpid}/ipv4/neigh", m.destroyHandler)
 
-	log.InfoLog("address_mgmt/ENABLE",
+	log.InfoLog("neigh_mgmt/ENABLE_HOOK",
 		"Neight management enabled")
 }
 

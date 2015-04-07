@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	//"github.com/netrack/net/iana"
+	"github.com/netrack/net/iana"
 	//"github.com/netrack/net/l2"
 	//"github.com/netrack/net/l3"
 	"github.com/netrack/netrack/log"
@@ -36,6 +36,8 @@ func (t *NeighTable) Lookup(ipaddr []byte) ([]byte, error) {
 	return nil, nil
 }
 
+// ARPMechanism handles ARP requests to the networks,
+// associated with switch ports.
 type ARPMechanism struct {
 	mech.BaseMechanismDriver
 
@@ -64,7 +66,7 @@ func (m *ARPMechanism) Activate() {
 	// Allocate table for handling arp protocol.
 	tableNo, err := m.C.Switch.AllocateTable()
 	if err != nil {
-		log.ErrorLog("ipv4/ACTIVATE_HOOK",
+		log.ErrorLog("arp/ACTIVATE_HOOK",
 			"Failed to allocate a new table: ", err)
 
 		return
@@ -72,9 +74,66 @@ func (m *ARPMechanism) Activate() {
 
 	m.tableNo = tableNo
 
-	log.DebugLog("ipv4/ACTIVATE_HOOK",
+	log.DebugLog("arp/ACTIVATE_HOOK",
 		"Allocated table: ", tableNo)
 
+	// Match packets of ARP protocol.
+	match := ofp.Match{ofp.MT_OXM, []ofp.OXM{
+		ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_ETH_TYPE, of.Bytes(iana.ETHT_ARP), nil},
+	}}
+
+	// Move all packets to allocated matching table for ARP packets.
+	instructions := ofp.Instructions{ofp.InstructionGotoTable{ofp.Table(m.tableNo)}}
+
+	// Insert flow into 0 table.
+	r, err := of.NewRequest(of.T_FLOW_MOD, of.NewReader(&ofp.FlowMod{
+		Command:      ofp.FC_ADD,
+		BufferID:     ofp.NO_BUFFER,
+		Priority:     20,
+		Match:        match,
+		Instructions: instructions,
+	}))
+
+	if err != nil {
+		log.ErrorLog("arp/ACTIVATE_HOOK",
+			"Failed to create ofp_flow_mod request: ", err)
+
+		return
+	}
+
+	if err = m.C.Switch.Conn().Send(r); err != nil {
+		log.ErrorLog("arp/ACTIVATE_HOOK",
+			"Failed to send request: ", err)
+
+		return
+	}
+
+	// Create black-hole rule.
+	r, err = of.NewRequest(of.T_FLOW_MOD, of.NewReader(&ofp.FlowMod{
+		TableID:  ofp.Table(m.tableNo),
+		Command:  ofp.FC_ADD,
+		BufferID: ofp.NO_BUFFER,
+		Match:    ofp.Match{ofp.MT_OXM, nil},
+	}))
+
+	if err != nil {
+		log.ErrorLog("arp/ACTIVATE_HOOK",
+			"Failed to create ofp_flow_mod request: ", err)
+
+		return
+	}
+
+	if err = m.C.Switch.Conn().Send(r); err != nil {
+		log.ErrorLog("arp/ACTIVATE_HOOK",
+			"Failed to send request: ", err)
+
+		return
+	}
+
+	if err = m.C.Switch.Conn().Flush(); err != nil {
+		log.ErrorLog("arp/ACTIVATE_HOOK",
+			"Failed to flush requests: ", err)
+	}
 	//var xid uint32
 	//err := m.C.Func.Call(rpc.T_OFP_TRANSACTION, nil,
 	//rpc.UInt32Result(&xid))

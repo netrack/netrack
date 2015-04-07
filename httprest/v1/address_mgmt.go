@@ -1,14 +1,17 @@
 package httprest
 
 import (
+	"fmt"
 	"net"
 	"net/http"
+	"strings"
 
 	"github.com/netrack/netrack/httprest/format"
 	"github.com/netrack/netrack/httprest/v1/models"
 	"github.com/netrack/netrack/httputil"
 	"github.com/netrack/netrack/log"
 	"github.com/netrack/netrack/mechanism"
+	"github.com/netrack/netrack/mechanism/rpc"
 )
 
 func init() {
@@ -67,7 +70,7 @@ func (m *AddressMgmt) showHandler(rw http.ResponseWriter, r *http.Request) {
 	iface := httputil.Param(r, "interface")
 
 	log.DebugLogf("address_mgmt/SHOW_HANDLER",
-		"Request show IPv4 address of: %s dev %s", dpid.iface)
+		"Request show IPv4 address of: %s dev %s", dpid, iface)
 
 	c, err := m.C.SwitchManager.SwitchContextByID(dpid)
 	if err != nil {
@@ -92,11 +95,17 @@ func (m *AddressMgmt) showHandler(rw http.ResponseWriter, r *http.Request) {
 
 	var addr, mask []byte
 
+	// m = c.Context.Mechanism.MechansimByName("ipv4-mechanism")
+	// m.AllocateResource(ResourceL3Address, &PortContext{
+	//     PortNo: 2,
+	//     Addr: "192.168.0.1/24",
+	// })
+
 	// Retrieve IPv4 address and network mask assigned to the port.
 	err = c.Context.Func.Call(rpc.IPv4GetAddressFunc,
-		rpc.Uint32Param(portNo),
+		rpc.Uint32Param(uint32(portNo)),
 		rpc.CompositeResult(
-			rpc.ByteSliceResult(&ip),
+			rpc.ByteSliceResult(&addr),
 			rpc.ByteSliceResult(&mask),
 		))
 
@@ -107,6 +116,8 @@ func (m *AddressMgmt) showHandler(rw http.ResponseWriter, r *http.Request) {
 		text := fmt.Sprintf("IPv4 address is not assigned to '%s' interface", iface)
 		f.Write(rw, r, models.Error{text})
 		rw.WriteHeader(http.StatusConflict)
+
+		return
 	}
 
 	ipaddr, ipmask := net.IP(addr), net.IPMask(mask)
@@ -126,6 +137,18 @@ func (m *AddressMgmt) destroyHandler(rw http.ResponseWriter, r *http.Request) {
 
 	log.DebugLog("address_mgmt/DESTROY_HANDLER",
 		"Request delete IPv4 address of: %s dev %s", dpid, iface)
+
+	f, err := format.Format(r.Header.Get(httputil.HeaderAccept))
+	if err != nil {
+		log.ErrorLog("address_mgmt/DESTROY_HANDLER",
+			"Failed to select Accept formatter for request: ", err)
+
+		formats := strings.Join(format.FormatNameList(), ", ")
+
+		f.Write(rw, r, models.Error{fmt.Sprintf("only '%s' are supported", formats)})
+		rw.WriteHeader(http.StatusNotAcceptable)
+		return
+	}
 
 	c, err := m.C.SwitchManager.SwitchContextByID(dpid)
 	if err != nil {
@@ -159,6 +182,7 @@ func (m *AddressMgmt) destroyHandler(rw http.ResponseWriter, r *http.Request) {
 		text := fmt.Sprintf("IPv4 address was not deleted from '%s' interface", iface)
 		f.Write(rw, r, models.Error{text})
 		rw.WriteHeader(http.StatusConflict)
+		return
 	}
 
 	rw.WriteHeader(http.StatusOK)

@@ -33,6 +33,21 @@ func Uint16Param(u uint16) Param {
 	})
 }
 
+func Uint32Param(u uint32) Param {
+	return ParamFunc(func(args ...interface{}) error {
+		if err := lenHelper(args); err != nil {
+			return err
+		}
+
+		if p, ok := args[0].(*uint32); ok {
+			*p = u
+			return nil
+		}
+
+		return ErrTypeMismatch
+	})
+}
+
 func StringParam(s string) Param {
 	return ParamFunc(func(args ...interface{}) error {
 		if err := lenHelper(args); err != nil {

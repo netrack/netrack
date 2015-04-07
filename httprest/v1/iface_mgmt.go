@@ -35,7 +35,7 @@ func (m *IFaceMgmt) Enable(c *mech.HTTPDriverContext) {
 	m.C.Mux.HandleFunc("GET", "/v1/switches/{dpid}/interfaces", m.indexHandler)
 	m.C.Mux.HandleFunc("GET", "/v1/switches/{dpid}/interfaces/{interface}", m.showHandler)
 
-	log.InfoLog("address_mgmt/ENABLE",
+	log.InfoLog("iface_mgmt/ENABLE_HOOK",
 		"Interface management enabled")
 }
 

@@ -16,15 +16,52 @@ type OFPMechanism struct {
 	mech.BaseMechanismDriver
 }
 
+// NewOFPMechanism creates new instance of OFPMechanism type.
 func NewOFPMechanism() mech.MechanismDriver {
 	return &OFPMechanism{}
 }
 
+// Enable implements MechanismDriver interface.
 func (m *OFPMechanism) Enable(c *mech.MechanismDriverContext) {
 	m.BaseMechanismDriver.Enable(c)
 
 	m.C.Mux.HandleFunc(of.T_ECHO_REQUEST, m.echoHandler)
-	log.InfoLog("ofp/ENABLE", "Mechanism ofp1.3 enabled")
+
+	log.InfoLog("ofp/ENABLE_HOOK",
+		"Mechanism ofp1.3 enabled")
+}
+
+// Activate implements MechanismDriver interface.
+func (m *OFPMechanism) Activate() {
+	m.BaseMechanismDriver.Activate()
+
+	// Write black-hole rule with the lowest priority.
+	// This rule prevents flooding of the controller with
+	// dumb ofp_packet_in messages.
+	r, err := of.NewRequest(of.T_FLOW_MOD, of.NewReader(&ofp.FlowMod{
+		Command:  ofp.FC_ADD,
+		BufferID: ofp.NO_BUFFER,
+		Match:    ofp.Match{ofp.MT_OXM, nil},
+	}))
+
+	if err != nil {
+		log.ErrorLog("ofp1.3/ACTIVATE_HOOK",
+			"Failed to create new ofp_flow_mod request: ", err)
+
+		return
+	}
+
+	if err = m.C.Switch.Conn().Send(r); err != nil {
+		log.ErrorLog("ofp1.3/ACTIVATE_HOOK",
+			"Failed to write request: ", err)
+
+		return
+	}
+
+	if err = m.C.Switch.Conn().Flush(); err != nil {
+		log.ErrorLog("ofp1.3/ACTIVATE_HOOK",
+			"Failed to flush request: ", err)
+	}
 }
 
 func (m *OFPMechanism) echoHandler(rw of.ResponseWriter, r *of.Request) {
@@ -32,7 +69,7 @@ func (m *OFPMechanism) echoHandler(rw of.ResponseWriter, r *of.Request) {
 	rw.Header().Set(of.VersionHeaderKey, ofp.VERSION)
 
 	if err := rw.WriteHeader(); err != nil {
-		log.ErrorLog("ofp/ECHO_SEND_ECHO_REPLY",
+		log.ErrorLog("ofp1.3/ECHO_SEND_ECHO_REPLY",
 			"Failed to send ofp_echo_reply: ", err)
 	}
 }

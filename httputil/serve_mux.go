@@ -15,14 +15,36 @@ type muxEntry struct {
 	params  []string
 }
 
+type responseWriter struct {
+	http.ResponseWriter
+	wroteHeader bool
+}
+
+func (rw *responseWriter) WriteHeader(code int) {
+	rw.ResponseWriter.WriteHeader(code)
+	rw.wroteHeader = true
+}
+
 type ServeMux struct {
 	m        map[string][]muxEntry
+	f        []http.Handler
 	mu       sync.RWMutex
 	NotFound http.Handler
 }
 
 func NewServeMux() *ServeMux {
 	return &ServeMux{m: make(map[string][]muxEntry)}
+}
+
+func (mux *ServeMux) HandleFilter(handler http.Handler) {
+	mux.mu.Lock()
+	defer mux.mu.Unlock()
+
+	mux.f = append(mux.f, handler)
+}
+
+func (mux *ServeMux) HandlerFilterFunc(handler http.HandlerFunc) {
+	mux.HandleFilter(handler)
 }
 
 func (mux *ServeMux) Handle(method, pattern string, handler http.Handler) error {
@@ -59,6 +81,15 @@ func (mux *ServeMux) HandleFunc(method, pattern string, handler http.HandlerFunc
 
 func (mux *ServeMux) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	mux.mu.RLock()
+	w := &responseWriter{rw, false}
+
+	for _, f := range mux.f {
+		if f.ServeHTTP(w, r); w.wroteHeader {
+			mux.mu.RUnlock()
+			return
+		}
+	}
+
 	entries, ok := mux.m[r.Method]
 	mux.mu.RUnlock()
 

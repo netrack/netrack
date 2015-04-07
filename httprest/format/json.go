@@ -8,8 +8,9 @@ import (
 )
 
 func init() {
-	// Register formatter for application/json types.
+	// Register formatter for application/json and */* types.
 	Register(httputil.TypeApplicationJSON, &JSONFormatter{})
+	Register(httputil.TypeAny, &JSONFormatter{})
 }
 
 // JSONFormatter formats data into JSON.

@@ -6,10 +6,10 @@ import (
 	"sort"
 	"sync"
 
-	//"github.com/netrack/net/iana"
+	"github.com/netrack/net/iana"
 	"github.com/netrack/netrack/log"
 	"github.com/netrack/netrack/mechanism"
-	//"github.com/netrack/netrack/mechanism/rpc"
+	"github.com/netrack/netrack/mechanism/rpc"
 	"github.com/netrack/openflow"
 	"github.com/netrack/openflow/ofp.v13"
 )
@@ -116,8 +116,8 @@ func NewIPMechanism() mech.MechanismDriver {
 func (m *IPMechanism) Enable(c *mech.MechanismDriverContext) {
 	m.BaseMechanismDriver.Enable(c)
 
-	//m.C.Mux.HandleFunc(of.T_HELLO, m.helloHandler)
-	log.InfoLog("ipv4/ENABLE_HOOK", "Mechanism IP enabled")
+	log.InfoLog("ipv4/ENABLE_HOOK",
+		"Mechanism IP enabled")
 }
 
 // Activate implements MechanismDriver interface
@@ -137,6 +137,64 @@ func (m *IPMechanism) Activate() {
 
 	log.DebugLog("ipv4/ACTIVATE_HOOK",
 		"Allocated table: ", tableNo)
+
+	// Match packets of IPv4 protocol.
+	match := ofp.Match{ofp.MT_OXM, []ofp.OXM{
+		ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_ETH_TYPE, of.Bytes(iana.ETHT_IPV4), nil},
+	}}
+
+	// Move all packets to allocated matching table for IPv4 packets.
+	instructions := ofp.Instructions{ofp.InstructionGotoTable{ofp.Table(m.tableNo)}}
+
+	// Insert flow into 0 table.
+	r, err := of.NewRequest(of.T_FLOW_MOD, of.NewReader(&ofp.FlowMod{
+		Command:      ofp.FC_ADD,
+		BufferID:     ofp.NO_BUFFER,
+		Priority:     10,
+		Match:        match,
+		Instructions: instructions,
+	}))
+
+	if err != nil {
+		log.ErrorLog("ipv4/ACTIVATE_HOOK",
+			"Failed to create ofp_flow_mod request: ", err)
+
+		return
+	}
+
+	if err = m.C.Switch.Conn().Send(r); err != nil {
+		log.ErrorLog("ipv4/ACTIVATE_HOOK",
+			"Failed to send request: ", err)
+
+		return
+	}
+
+	// Create black-hole rule.
+	r, err = of.NewRequest(of.T_FLOW_MOD, of.NewReader(&ofp.FlowMod{
+		TableID:  ofp.Table(m.tableNo),
+		Command:  ofp.FC_ADD,
+		BufferID: ofp.NO_BUFFER,
+		Match:    ofp.Match{ofp.MT_OXM, nil},
+	}))
+
+	if err != nil {
+		log.ErrorLog("ipv4/ACTIVATE_HOOK",
+			"Failed to create ofp_flow_mod request: ", err)
+
+		return
+	}
+
+	if err = m.C.Switch.Conn().Send(r); err != nil {
+		log.ErrorLog("ipv4/ACTIVATE_HOOK",
+			"Failed to send request: ", err)
+
+		return
+	}
+
+	if err = m.C.Switch.Conn().Flush(); err != nil {
+		log.ErrorLog("ipv4/ACTIVATE_HOOK",
+			"Failed to flush requests: ", err)
+	}
 }
 
 // Disable implements MechanismDriver interface

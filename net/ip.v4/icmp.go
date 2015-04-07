@@ -3,14 +3,14 @@ package ip
 import (
 	//"net"
 
-	//"github.com/netrack/net/iana"
+	"github.com/netrack/net/iana"
 	//"github.com/netrack/net/l2"
 	//"github.com/netrack/net/l3"
 	"github.com/netrack/netrack/log"
 	"github.com/netrack/netrack/mechanism"
 	"github.com/netrack/netrack/mechanism/rpc"
 	"github.com/netrack/openflow"
-	//"github.com/netrack/openflow/ofp.v13"
+	"github.com/netrack/openflow/ofp.v13"
 )
 
 func init() {
@@ -30,9 +30,6 @@ func NewICMPMechanism() mech.MechanismDriver {
 
 func (m *ICMPMechanism) Enable(c *mech.MechanismDriverContext) {
 	m.BaseMechanismDriver.Enable(c)
-
-	//m.BaseMechanismDriver.C.Func.RegisterFunc(rpc.T_ICMP_ADD_PINGER, m.Add)
-	//m.BaseMechanismDriver.C.Mux.HandleFunc(of.T_PACKET_IN, m.packetInHandler)
 
 	log.InfoLog("icmp/ENABLE_HOOK",
 		"Mechanism ICMP mechanism enabled")
@@ -54,6 +51,65 @@ func (m *ICMPMechanism) Activate() {
 
 	log.DebugLog("icmp/ACTIVATE_HOOK",
 		"Allocated table: ", tableNo)
+
+	// Match packets of ICMP protocol.
+	match := ofp.Match{ofp.MT_OXM, []ofp.OXM{
+		ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_ETH_TYPE, of.Bytes(iana.ETHT_IPV4), nil},
+		ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_IP_PROTO, of.Bytes(iana.IP_PROTO_ICMP), nil},
+	}}
+
+	// Move all packets to allocated matching table for ICMP packets.
+	instructions := ofp.Instructions{ofp.InstructionGotoTable{ofp.Table(m.tableNo)}}
+
+	// Insert flow into 0 table.
+	r, err := of.NewRequest(of.T_FLOW_MOD, of.NewReader(&ofp.FlowMod{
+		Command:      ofp.FC_ADD,
+		BufferID:     ofp.NO_BUFFER,
+		Priority:     15,
+		Match:        match,
+		Instructions: instructions,
+	}))
+
+	if err != nil {
+		log.ErrorLog("icmp/ACTIVATE_HOOK",
+			"Failed to create ofp_flow_mod request: ", err)
+
+		return
+	}
+
+	if err = m.C.Switch.Conn().Send(r); err != nil {
+		log.ErrorLog("icmp/ACTIVATE_HOOK",
+			"Failed to send request: ", err)
+
+		return
+	}
+
+	// Create black-hole rule.
+	r, err = of.NewRequest(of.T_FLOW_MOD, of.NewReader(&ofp.FlowMod{
+		TableID:  ofp.Table(m.tableNo),
+		Command:  ofp.FC_ADD,
+		BufferID: ofp.NO_BUFFER,
+		Match:    ofp.Match{ofp.MT_OXM, nil},
+	}))
+
+	if err != nil {
+		log.ErrorLog("icmp/ACTIVATE_HOOK",
+			"Failed to create ofp_flow_mod request: ", err)
+
+		return
+	}
+
+	if err = m.C.Switch.Conn().Send(r); err != nil {
+		log.ErrorLog("icmp/ACTIVATE_HOOK",
+			"Failed to send request: ", err)
+
+		return
+	}
+
+	if err = m.C.Switch.Conn().Flush(); err != nil {
+		log.ErrorLog("icmp/ACTIVATE_HOOK",
+			"Failed to flush requests: ", err)
+	}
 }
 
 func (m *ICMPMechanism) packetInHandler(rw of.ResponseWriter, r *of.Request) {

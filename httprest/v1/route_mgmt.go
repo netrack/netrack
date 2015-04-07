@@ -22,7 +22,7 @@ func (m *RouteMgmt) Enable(c *mech.HTTPDriverContext) {
 	m.C.Mux.HandleFunc("GET", "/v1/switches/{dpid}/ipv4/route", nil)
 	m.C.Mux.HandleFunc("DELETE", "/v1/switches/{dpid}/ipv4/route", nil)
 
-	log.InfoLog("address_mgmt/ENABLE",
+	log.InfoLog("route_mgmt/ENABLE_HOOK",
 		"Route management enabled")
 }
 

@@ -41,6 +41,27 @@ type MechanismDriver interface {
 	Disable()
 }
 
+// L2MechanismDriver is the interface implemented by an object
+// that can handle OSI L2 network types.
+type L2MechanismDriver interface {
+	// Base MechanismDriver interface
+	MechanismDriver
+}
+
+// L3MechanismDriver is the interface implemented by an object
+// that can handle OSI L3 network types.
+type L3MechanismDriver interface {
+	// Base MechanismDriver interface
+	MechanismDriver
+}
+
+// ExtentionMechanismDriver is the interface implemented by an object
+// that can provide additional functionality.
+type ExtentionMechanismDriver interface {
+	// Base MechanismDriver interface
+	MechanismDriver
+}
+
 // BaseMechanismDriver implements thread-safe methods of
 // MechanismDriver interface.
 type BaseMechanismDriver struct {

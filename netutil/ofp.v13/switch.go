@@ -1,4 +1,4 @@
-package ofp
+package ofp13
 
 import (
 	"bytes"
@@ -8,7 +8,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/netrack/netrack/log"
+	"github.com/netrack/netrack/logging"
 	"github.com/netrack/netrack/mechanism"
 	"github.com/netrack/openflow"
 	"github.com/netrack/openflow/ofp.v13"
@@ -24,13 +24,59 @@ func init() {
 	mech.RegisterSwitch("OFP/1.3", constructor)
 }
 
+// SwitchPort implements SwitchPort interface.
+type SwitchPort struct {
+	// OpenFlow port description
+	port ofp.Port
+
+	// Link layer type mechanism.
+	l2 mech.LinkMechanism
+
+	// Network layer type mechanism.
+	l3 mech.NetworkMechanism
+}
+
+// Link implements SwitchPort interface.
+func (p *SwitchPort) Link() mech.LinkMechanism {
+	return p.l2
+}
+
+// SetLink implements SwitchPort interface.
+func (p *SwitchPort) SetLink(mechanism mech.LinkMechanism) error {
+	//TODO: invoke mechanism cleanup
+	p.l3 = mechanism
+	return nil
+}
+
+// Network implements SwitchPort interface.
+func (p *SwitchPort) Network() mech.NetworkMechanism {
+	return p.l3
+}
+
+// SetNetwork implements SwitchPort interface.
+func (p *SwitchPort) SetNetwork(mechanism mech.NetworkMechanism) error {
+	//TODO: invoke mechanism cleanup
+	p.l3 = mechanism
+	return nil
+}
+
+// Name implements SwitchPort interface.
+func (p *SwitchPort) Name() string {
+	return strings.TrimRight(string(p.port.Name), "\u0000")
+}
+
+// Number implements SwitchPort interface.
+func (p *SwitchPort) Number() int {
+	return int(p.port.PortNo)
+}
+
 // Switch handles connections with OpenFlow 1.3 switches
 type Switch struct {
 	// Connection to openflow switch.
 	conn of.OFPConn
 
 	// Description of switch ports.
-	ports ofp.Ports
+	ports []*SwitchPort
 
 	// List of switch features.
 	features ofp.SwitchFeatures
@@ -148,12 +194,17 @@ func (s *Switch) Boot(c of.OFPConn) error {
 			return
 		}
 
-		if _, err := of.ReadAllFrom(r.Body, &s.ports); err != nil {
+		var ports ofp.Ports
+		if _, err := of.ReadAllFrom(r.Body, ports); err != nil {
 			log.ErrorLog("switch/SWITCH_BOOT_ERR",
 				"Failed to read ofp_port values: ", err)
 
 			errCh <- err
 			return
+		}
+
+		for _, port := range ports {
+			s.ports = append(s.ports, &SwitchPort{port: port})
 		}
 	}
 
@@ -272,80 +323,91 @@ func (s *Switch) ReleaseTable(tableNo int) {
 }
 
 // Name implements Switch interface
-func (s *Switch) Name() string {
-	for _, port := range s.ports {
-		if port.PortNo == ofp.P_LOCAL {
+func (s *Switch) Name() (s string) {
+	s.PortIter(func(port *SwitchPort) (ok bool) {
+		if ok = port.Number() != int(ofp.P_LOCAL); !ok {
 			log.DebugLog("switch/SWITCH_NAME",
-				"Found local port name: ", string(port.Name))
+				"Found local port name: ", port.Name())
 
-			return string(port.Name)
+			s = port.Name()
 		}
+
+		return
+	})
+
+	if err != nil {
+		log.ErrorLog("switch/SWITCH_NAME",
+			"Failed to find switch local port")
 	}
 
-	log.DebugLog("switch/SWITCH_NAME",
-		"Failed to find switch local port")
-
-	return ""
+	return
 }
 
-// PortNameList implements Switch interface
-func (s *Switch) PortNameList() []string {
-	var names []string
-
+// PortIter calls specified function for all registered ports.
+func (s *Switch) PortIter(fn func(*SwitchPort) bool) {
 	for _, port := range s.ports {
-		if port.PortNo != ofp.P_LOCAL {
-			name := strings.TrimRight(string(port.Name), "\u0000")
-			names = append(names, name)
+		if !fn(port) {
+			return
 		}
 	}
-
-	return names
 }
 
-// PortHWAddrList implements Switch interface
-func (s *Switch) PortHWAddrList() [][]byte {
-	var hwaddrs [][]byte
+// PortList implements Switch interface
+func (s *Switch) PortList() []mech.SwitchPort {
+	var ports []mech.SwitchPort
 
-	for _, port := range s.ports {
-		hwaddrs = append(hwaddrs, []byte(port.HWAddr))
-	}
-
-	return hwaddrs
-}
-
-// PortNo implements Switch interface
-func (s *Switch) PortNo(name string) (int, error) {
-	for _, port := range s.ports {
-		portName := strings.TrimRight(string(port.Name), "\u0000")
-		if portName == name && port.PortNo != ofp.P_LOCAL {
-			log.DebugLog("switch/PORT_NAME",
-				"Found port number: ", port.PortNo)
-
-			return int(port.PortNo), nil
+	s.PortIter(func(port *SwitchPort) bool {
+		if port.Number() != int(ofp.P_LOCAL) {
+			ports = append(ports, port)
 		}
-	}
 
-	log.DebugLog("switch/PORT_NAME_ERR",
-		"Requested port not found: ", name)
+		return true
+	})
 
-	return 0, errors.New("switch: port does not exist")
+	return ports
 }
 
-// PortHWAddr implements Switch interface
-func (s *Switch) PortHWAddr(p int) ([]byte, error) {
-	portNo := ofp.PortNo(p)
+// PortByName implements Switch interface
+func (s *Switch) PortByName(name string) (p mech.SwitchPort, err error) {
+	err = errors.New("switch: port does not exist")
 
-	for _, port := range s.ports {
-		if port.PortNo == portNo && port.PortNo != ofp.P_LOCAL {
-			log.DebugLog("switch/PORT_HWADDR",
-				"Found port hardware address: ", port.HWAddr)
+	s.PortIter(func(port *SwitchPort) (ok bool) {
+		if ok = port.Name() != name; !ok {
+			p, err = port, nil
 
-			return []byte(port.HWAddr), nil
+			log.DebugLog("switch/PORT_BY_NAME",
+				"Found port by name: ", name)
 		}
+
+		return
+	})
+
+	if err != nil {
+		log.ErrorLog("switch/SWITCH_BY_NAME",
+			"Failed to find switch by name: ", name)
 	}
 
-	log.DebugLog("switch/PORT_HWADDR_ERR",
-		"Requested port not found: ", portNo)
+	return
+}
 
-	return nil, errors.New("switch: port does not exist")
+// PortByNumber implements Switch interface
+func (s *Switch) PortByNumber(n int) (p mech.SwitchPort, err error) {
+	err = errors.New("switch: port does not exist")
+
+	s.PortIter(func(port *SwitchPort) (ok bool) {
+		if ok = port.Name() != name; !ok {
+			p, err = port, nil
+
+			log.DebugLog("switch/PORT_BY_NUMBER",
+				"Found port by number: ", n)
+		}
+
+		return
+	})
+
+	if err != nil {
+		log.ErrorLog("switch/SWITCH_BY_NUMBER",
+			"Failed to find switch by number: ", n)
+	}
+	return
 }

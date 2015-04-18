@@ -4,7 +4,7 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/netrack/netrack/log"
+	"github.com/netrack/netrack/logging"
 )
 
 var (

@@ -1,6 +1,3 @@
 # Netrack configuration file
 #
 instance_id = "2ba5e6cc-c5bb-11e4-a23c-001fd08d7e6c"
-
-[ip.v4]
-unicast_routing = enable

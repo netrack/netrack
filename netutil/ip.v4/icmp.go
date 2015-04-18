@@ -6,7 +6,7 @@ import (
 	"github.com/netrack/net/iana"
 	//"github.com/netrack/net/l2"
 	//"github.com/netrack/net/l3"
-	"github.com/netrack/netrack/log"
+	"github.com/netrack/netrack/logging"
 	"github.com/netrack/netrack/mechanism"
 	"github.com/netrack/netrack/mechanism/rpc"
 	"github.com/netrack/openflow"

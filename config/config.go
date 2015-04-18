@@ -1,15 +1,16 @@
 package config
 
 import (
-	"github.com/burntsushi/toml"
+	_ "github.com/netrack/netrack/config/environment"
 )
 
 type Config struct {
-	InstID string `toml:"instance_id"`
+	ID string
 }
 
 func LoadFile(path string) (*Config, error) {
-	var config Config
-	_, err := toml.DecodeFile(path, &config)
-	return &config, err
+	// var config Config
+	// _, err := toml.DecodeFile(path, &config)
+	// return &config, err
+	panic("PANIC PANIC PANIC")
 }

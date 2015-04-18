@@ -4,7 +4,7 @@ import (
 	"net/http"
 
 	"github.com/netrack/netrack/httputil"
-	"github.com/netrack/netrack/log"
+	"github.com/netrack/netrack/logging"
 	"github.com/netrack/netrack/mechanism"
 	"github.com/netrack/openflow"
 )

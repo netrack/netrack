@@ -1,7 +1,7 @@
 package mech
 
 import (
-	"github.com/netrack/netrack/log"
+	"github.com/netrack/netrack/logging"
 	"github.com/netrack/openflow"
 )
 
@@ -9,14 +9,38 @@ import (
 // and mechanism drivers for a single switch.
 type SwitchContext struct {
 	// Mechanism driver context.
-	Context *MechanismDriverContext
+	Context *MechanismContext
 
-	// Mechanism driver manager.
-	Mechanism *MechanismDriverManager
+	// Link layer mechanism manager.
+	Links *LinkMechanismManager
+
+	// Network layer mechanism manager.
+	Networks *NetworkMechanismManager
+
+	// Extention mechanism manager.
+	Extentions *ExtentionMechanismManager
+}
+
+// SwichPort describes switch ports.
+type SwitchPort interface {
+	// Name returns name of the switch port.
+	Name() string
+
+	// Number returns number of the port in a switch.
+	Number() int
+
+	// Link returns link layer resources.
+	Link() *LinkContext
+
+	// Network returns network layer resources.
+	Network() *NetworkContext
 }
 
 // Switch describes instance of openflow device
 type Switch interface {
+	// ID returns switch datapath identifier.
+	ID() string
+
 	// Boot performs version negotiation and initial switch
 	// configuration on specified openflow connection. The
 	// very next step on Boot call is to send ofp_hello message back.
@@ -24,9 +48,6 @@ type Switch interface {
 
 	// Conn returns connection to OpenFlow switch.
 	Conn() of.OFPConn
-
-	// ID returns switch datapath identifier.
-	ID() string
 
 	// Name return name of the switch local port,
 	// which can be interpreted as switch name.
@@ -39,20 +60,16 @@ type Switch interface {
 	// ReleaseTable makes table available for other mechanisms.
 	ReleaseTable(int)
 
-	// PortNameList returns names of ports available in a system
-	PortNameList() []string
+	// PortList returns list of ports registered in a switch.
+	PortList() []SwitchPort
 
-	// PortHWAddrList returns list of hardware addresses
-	// of ports available in a system.
-	PortHWAddrList() [][]byte
+	// PortByName returns port instance by specified port name,
+	// an error will returned if port not found.
+	PortByName(string) (SwitchPort, error)
 
-	// PortNo returns number of the specified port name, an error
-	// will be returned if port does not exist in a system.
-	PortNo(string) (int, error)
-
-	// PortHWAddr returns hardware address of the specified port,
-	// an error will be returned if port does not exist in a system.
-	PortHWAddr(int) ([]byte, error)
+	// PortByNumber returns port instance by specified port number,
+	// an error will returned if port not found.
+	PortByNumber(int) (SwitchPort, error)
 }
 
 // SwitchConstructor is a generic constructor for switches.

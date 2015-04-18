@@ -4,7 +4,7 @@ import (
 	"errors"
 	"sync"
 
-	"github.com/netrack/netrack/log"
+	"github.com/netrack/netrack/logging"
 	"github.com/netrack/netrack/mechanism/rpc"
 	"github.com/netrack/openflow"
 )
@@ -65,17 +65,17 @@ func (m *SwitchManager) CreateSwitch(conn of.OFPConn) error {
 		"Switch successfully booted for ", r.Proto)
 
 	// Create a new mechanism driver context
-	context := &MechanismDriverContext{sw, rpc.New(), of.NewServeMux()}
+	context := &MechanismContext{sw, rpc.New(), of.NewServeMux()}
 
-	drivers := make(map[string]MechanismDriver)
-	for _, name := range MechanismDriverNameList() {
+	drivers := make(map[string]Mechanism)
+	for _, name := range MechanismNameList() {
 		// Create instances of registered drivers
-		driver := MechanismDriverByName(name)
+		driver := MechanismByName(name)
 		drivers[name] = driver.New()
 	}
 
 	// Create mechanism driver manager
-	mechanisms := &MechanismDriverManager{drivers}
+	mechanisms := &MechanismManager{drivers}
 	mechanisms.Enable(context)
 
 	// Since switch already booted, activate drivers
@@ -119,7 +119,7 @@ func (m *SwitchManager) SwitchContextByID(dpid string) (*SwitchContext, error) {
 	return context, nil
 }
 
-func (m *SwitchManager) serve(c *MechanismDriverContext) {
+func (m *SwitchManager) serve(c *MechanismContext) {
 	conn := c.Switch.Conn()
 
 	for {

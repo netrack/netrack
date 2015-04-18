@@ -1,7 +1,7 @@
-package ofp
+package ofp13
 
 import (
-	"github.com/netrack/netrack/log"
+	"github.com/netrack/netrack/logging"
 	"github.com/netrack/netrack/mechanism"
 	"github.com/netrack/openflow"
 	"github.com/netrack/openflow/ofp.v13"

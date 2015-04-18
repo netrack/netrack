@@ -7,7 +7,7 @@ import (
 	"sync"
 
 	"github.com/netrack/net/iana"
-	"github.com/netrack/netrack/log"
+	"github.com/netrack/netrack/logging"
 	"github.com/netrack/netrack/mechanism"
 	"github.com/netrack/netrack/mechanism/rpc"
 	"github.com/netrack/openflow"
@@ -15,8 +15,8 @@ import (
 )
 
 func init() {
-	constructor := mech.MechanismDriverConstructorFunc(NewIPMechanism)
-	mech.RegisterMechanismDriver("ipv4-mechanism", constructor)
+	constructor := mech.NetworkMechanismConstructorFunc(NewIPMechanism)
+	mech.RegisterMechanismDriver(mech.NetworkProtoIPv4, constructor)
 }
 
 const (

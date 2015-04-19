@@ -53,3 +53,52 @@ func TestServeMux(t *testing.T) {
 	test("/tenants/123/users/456/logout", "not found")
 	test("/customers/123", "not found")
 }
+
+func TestServeMuxFilter(t *testing.T) {
+	var filter1, filter2 bool
+	mux := NewServeMux()
+
+	mux.HandleFunc("GET", "/", func(rw http.ResponseWriter, r *http.Request) {
+		rw.Write([]byte("handler"))
+	})
+
+	mux.HandleFilterFunc(func(rw http.ResponseWriter, r *http.Request) {
+		if filter1 {
+			rw.WriteHeader(http.StatusNotAcceptable)
+			rw.Write([]byte("filter handler 1"))
+		}
+	})
+
+	mux.HandleFilterFunc(func(rw http.ResponseWriter, r *http.Request) {
+		if filter2 {
+			rw.WriteHeader(http.StatusUnsupportedMediaType)
+			rw.Write([]byte("filter handler 2"))
+		}
+	})
+
+	test := func(status int, body string) {
+		r, _ := http.NewRequest("GET", "/", nil)
+		rw := httptest.NewRecorder()
+
+		mux.ServeHTTP(rw, r)
+
+		if rw.Code != status {
+			t.Fatal("Failed to return right status:", rw.Code)
+		}
+
+		if rw.Body.String() != body {
+			t.Fatal("Failed to properly filter request:", rw.Body.String())
+		}
+	}
+
+	test(http.StatusOK, "handler")
+
+	filter1, filter2 = true, false
+	test(http.StatusNotAcceptable, "filter handler 1")
+
+	filter1, filter2 = false, true
+	test(http.StatusUnsupportedMediaType, "filter handler 2")
+
+	filter1, filter2 = false, false
+	test(http.StatusOK, "handler")
+}

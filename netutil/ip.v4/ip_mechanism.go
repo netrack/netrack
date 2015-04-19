@@ -1,105 +1,26 @@
 package ip
 
 import (
-	"errors"
-	"net"
-	"sort"
-	"sync"
+	//"errors"
+	//"net"
 
 	"github.com/netrack/net/iana"
 	"github.com/netrack/netrack/logging"
 	"github.com/netrack/netrack/mechanism"
-	"github.com/netrack/netrack/mechanism/rpc"
+	//"github.com/netrack/netrack/mechanism/rpc"
 	"github.com/netrack/openflow"
 	"github.com/netrack/openflow/ofp.v13"
 )
 
-func init() {
-	constructor := mech.NetworkMechanismConstructorFunc(NewIPMechanism)
-	mech.RegisterMechanismDriver(mech.NetworkProtoIPv4, constructor)
-}
-
-const (
-	StaticRoute    RouteType = "S"
-	LocalRoute     RouteType = "L"
-	ConnectedRoute RouteType = "C"
-	EIGRPRoute     RouteType = "D"
-	OSPFRoute      RouteType = "O"
-	RIPRoute       RouteType = "R"
-)
-
-var distanceMap = map[RouteType]int{
-	StaticRoute:    0,
-	ConnectedRoute: 1,
-	EIGRPRoute:     90,
-	OSPFRoute:      110,
-	RIPRoute:       120,
-}
-
-func routeToDistance(r RouteType) (int, error) {
-	distance, ok := distanceMap[r]
-	if !ok {
-		return 0, errors.New("ip: unsupported route type")
-	}
-
-	return distance, nil
-}
-
 const TableIPv4 ofp.Table = 4
 
-type RouteType string
-
-type RouteEntry struct {
-	Type     RouteType
-	Net      net.IPNet
-	NextHop  net.IP
-	Distance int
-	//Metric
-	//Timestamp
-	Port ofp.PortNo
-}
-
-type RoutingTable struct {
-	routes []RouteEntry
-	lock   sync.RWMutex
-}
-
-func (t *RoutingTable) Append(entry RouteEntry) error {
-	t.lock.Lock()
-	defer t.lock.Unlock()
-
-	t.routes = append(t.routes, entry)
-	sort.Sort(t)
-
-	return nil
-}
-
-func (t *RoutingTable) Lookup(ipaddr net.IP) (net.IPNet, error) {
-	return net.IPNet{}, nil
-}
-
-func (t *RoutingTable) Len() int {
-	return len(t.routes)
-}
-
-func (t *RoutingTable) Less(i, j int) bool {
-	if t.routes[i].Distance < t.routes[j].Distance {
-		return true
-	}
-
-	// Compare metric
-	//if r.routes[i].Metric < r.routes[j].Metric {
-	//}
-
-	return false
-}
-
-func (t *RoutingTable) Swap(i, j int) {
-	t.routes[i], t.routes[j] = t.routes[j], t.routes[i]
+func init() {
+	constructor := mech.NetworkMechanismConstructorFunc(NewIPMechanism)
+	mech.RegisterNetworkMechanism("IPv4", constructor)
 }
 
 type IPMechanism struct {
-	mech.BaseMechanismDriver
+	mech.BaseNetworkMechanism
 
 	// IPv4 routing table instance.
 	T RoutingTable
@@ -108,21 +29,21 @@ type IPMechanism struct {
 	tableNo int
 }
 
-func NewIPMechanism() mech.MechanismDriver {
+func NewIPMechanism() mech.NetworkMechanism {
 	return &IPMechanism{}
 }
 
-// Enable implements MechanismDriver interface
-func (m *IPMechanism) Enable(c *mech.MechanismDriverContext) {
-	m.BaseMechanismDriver.Enable(c)
+// Enable implements Mechanism interface
+func (m *IPMechanism) Enable(c *mech.MechanismContext) {
+	m.BaseNetworkMechanism.Enable(c)
 
 	log.InfoLog("ipv4/ENABLE_HOOK",
 		"Mechanism IP enabled")
 }
 
-// Activate implements MechanismDriver interface
+// Activate implements Mechanism interface
 func (m *IPMechanism) Activate() {
-	m.BaseMechanismDriver.Activate()
+	m.BaseNetworkMechanism.Activate()
 
 	// Allocate table for handling ipv4 protocol.
 	tableNo, err := m.C.Switch.AllocateTable()
@@ -197,36 +118,18 @@ func (m *IPMechanism) Activate() {
 	}
 }
 
-// Disable implements MechanismDriver interface
+// Disable implements Mechanism interface
 func (m *IPMechanism) Disable() {
-	m.BaseMechanismDriver.Disable()
+	m.BaseNetworkMechanism.Disable()
 	// pass
 }
 
-// getAddressFunc returnes IPv4 address and network mask in a result
-// variable, error will be returned if neither port exists, nor IPv4
-// address assigned to required port.
-func (m *IPMechanism) getAddressFunc(param rpc.Param, result rpc.Result) error {
+func (m *IPMechanism) UpdateNetwork(context *mech.NetworkContext) error {
+
 	return nil
 }
 
-func (m *IPMechanism) addAddressFunc(param rpc.Param, result rpc.Result) error {
-	return nil
-}
-
-func (m *IPMechanism) deleteAddressFunc(param rpc.Param, result rpc.Result) error {
-	return nil
-}
-
-func (m *IPMechanism) addRouteFunc(entry RouteEntry) error {
-	//_, netw, _ := net.ParseCIDR(s)
-
-	if err := m.T.Append(entry); err != nil {
-		log.ErrorLog("ip/ADD_ROUTE_ERR",
-			"Failed to add a new route: ", err)
-		return err
-	}
-
+func (m *IPMechanism) DeleteNetwork(context *mech.NetworkContext) error {
 	return nil
 }
 

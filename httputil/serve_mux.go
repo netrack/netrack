@@ -43,7 +43,7 @@ func (mux *ServeMux) HandleFilter(handler http.Handler) {
 	mux.f = append(mux.f, handler)
 }
 
-func (mux *ServeMux) HandlerFilterFunc(handler http.HandlerFunc) {
+func (mux *ServeMux) HandleFilterFunc(handler http.HandlerFunc) {
 	mux.HandleFilter(handler)
 }
 
@@ -84,7 +84,9 @@ func (mux *ServeMux) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	w := &responseWriter{rw, false}
 
 	for _, f := range mux.f {
-		if f.ServeHTTP(w, r); w.wroteHeader {
+		f.ServeHTTP(w, r)
+
+		if w.wroteHeader {
 			mux.mu.RUnlock()
 			return
 		}

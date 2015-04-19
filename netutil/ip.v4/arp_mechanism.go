@@ -6,8 +6,8 @@ import (
 	"time"
 
 	"github.com/netrack/net/iana"
-	//"github.com/netrack/net/l2"
-	//"github.com/netrack/net/l3"
+	"github.com/netrack/net/l2"
+	"github.com/netrack/net/l3"
 	"github.com/netrack/netrack/logging"
 	"github.com/netrack/netrack/mechanism"
 	"github.com/netrack/netrack/mechanism/rpc"
@@ -16,8 +16,8 @@ import (
 )
 
 func init() {
-	constructor := mech.MechanismDriverConstructorFunc(NewARPMechanism)
-	mech.RegisterMechanismDriver("arp-mechanism", constructor)
+	constructor := mech.NetworkMechanismConstructorFunc(NewARPMechanism)
+	mech.RegisterNetworkMechanism("arp-mechanism", constructor)
 }
 
 type NeighEntry struct {
@@ -39,7 +39,7 @@ func (t *NeighTable) Lookup(ipaddr []byte) ([]byte, error) {
 // ARPMechanism handles ARP requests to the networks,
 // associated with switch ports.
 type ARPMechanism struct {
-	mech.BaseMechanismDriver
+	mech.BaseNetworkMechanism
 
 	T NeighTable
 
@@ -47,21 +47,21 @@ type ARPMechanism struct {
 	tableNo int
 }
 
-func NewARPMechanism() mech.MechanismDriver {
+func NewARPMechanism() mech.NetworkMechanism {
 	return &ARPMechanism{}
 }
 
-// Enable implements MechanismDriver interface
-func (m *ARPMechanism) Enable(c *mech.MechanismDriverContext) {
-	m.BaseMechanismDriver.Enable(c)
+// Enable implements Mechanism interface
+func (m *ARPMechanism) Enable(c *mech.MechanismContext) {
+	m.BaseMechanism.Enable(c)
 
 	//m.C.Mux.HandleFunc(of.T_PACKET_IN, m.packetHandler)
 	log.InfoLog("arp/ENABLE", "Mechanism ARP enabled")
 }
 
-// Activate implements MechanismDriver interface
+// Activate implements Mechanism interface
 func (m *ARPMechanism) Activate() {
-	m.BaseMechanismDriver.Activate()
+	m.BaseMechanism.Activate()
 
 	// Allocate table for handling arp protocol.
 	tableNo, err := m.C.Switch.AllocateTable()
@@ -134,61 +134,62 @@ func (m *ARPMechanism) Activate() {
 		log.ErrorLog("arp/ACTIVATE_HOOK",
 			"Failed to flush requests: ", err)
 	}
-	//var xid uint32
-	//err := m.C.Func.Call(rpc.T_OFP_TRANSACTION, nil,
-	//rpc.UInt32Result(&xid))
-
-	//if err != nil {
-	//log.ErrorLog("arp/HELLO_HANDLER",
-	//"Failed to retrieve a new transaction identifier: ", err)
-	//return
-	//}
-
-	//rw.Header().Set(of.TypeHeaderKey, of.T_FLOW_MOD)
-	//rw.Header().Set(of.VersionHeaderKey, ofp.VERSION)
-	//rw.Header().Set(of.XIDHeaderKey, xid)
-
-	////var hwDstAddr []byte
-	////err = m.BaseMechanismDriver.C.Func.Call(rpc.T_OFP_PORT_HWADDR,
-	////rpc.
-
-	//for _, hwaddr := range append([][]byte{l2.HWBcast}, hwDstAddr) {
-	//// Catch all ARP requests
-	//match := ofp.Match{ofp.MT_OXM, []ofp.OXM{
-	//ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_ETH_TYPE, of.Bytes(iana.ETHT_ARP), nil},
-	//ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_ETH_DST, hwaddr, nil},
-	//ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_ARP_OP, of.Bytes(l3.ARPOT_REQUEST), nil},
-	//}}
-
-	//// Move data to controller
-	//instr := ofp.Instructions{ofp.InstructionActions{
-	//ofp.ActionOutput{ofp.P_CONTROLLER, ofp.CML_NO_BUFFER},
-	//}}
-
-	//flowmod := &ofp.FlowMod{
-	//Table:        TableARP,
-	//Command:      ofp.FC_ADD,
-	//BufferID:     ofp.NO_BUFFER,
-	//Match:        match,
-	//Instructions: instr,
-	//}
-
-	//if _, err = fmod.WriteTo(rw); err != nil {
-	//log.ErrorLog("arp/HELLO_HANDLER",
-	//"Failed to write ofp_flow_mod message: ", err)
-	//return
-	//}
-
-	//}
-
-	//if err = rw.WriteHeader(); err != nil {
-	//log.ErrorLog("arp/HELLO_HANDLER",
-	//"Failed to write flow modifications: ", err)
-	//}
 }
 
 func (m *ARPMechanism) Disable() {
-	m.BaseMechanismDriver.Disable()
+	m.BaseMechanism.Disable()
+}
+
+func (m *ARPMechanism) UpdateNetwork(c *mech.NetworkContext) error {
+	// Match broadcast ARP requests to resolve updated address.
+	match := ofp.Match{ofp.MT_OXM, []ofp.OXM{
+		ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_ETH_TYPE, of.Bytes(iana.ETHT_ARP), nil},
+		ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_ARP_OP, of.Bytes(l3.ARPOT_REQUEST), nil},
+		ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_ARP_THA, l2.HWUnspec, nil},
+		ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_ARP_TPA, c.Addr.Bytes(), nil},
+	}}
+
+	// Send all such packets to controller
+	// TODO: figure out if openflow allows flip packet fields.
+	actions := ofp.Actions{
+		ofp.ActionOutput{ofp.PortNo(ofp.P_CONTROLLER), ofp.CML_NO_BUFFER},
+	}
+
+	// Apply actions to packet
+	instructions := ofp.Instructions{ofp.InstructionActions{
+		ofp.IT_APPLY_ACTIONS, actions,
+	}}
+
+	// Insert flow into ARP-allocated flow table.
+	r, err := of.NewRequest(of.T_FLOW_MOD, of.NewReader(&ofp.FlowMod{
+		Command:      ofp.FC_ADD,
+		TableID:      ofp.Table(m.tableNo),
+		BufferID:     ofp.NO_BUFFER,
+		Priority:     2, // Use non-zero priority
+		Match:        match,
+		Instructions: instructions,
+	}))
+
+	if err != nil {
+		log.ErrorLog("arp/UPDATE_NETWORK",
+			"Failed to create ofp_flow_mod request: ", err)
+
+		return err
+	}
+
+	if err = m.C.Switch.Conn().Send(r); err != nil {
+		log.ErrorLog("arp/UPDATE_NETWORK",
+			"Failed to send request: ", err)
+
+		return err
+	}
+
+	if err = m.C.Switch.Conn().Flush(); err != nil {
+		log.ErrorLog("arp/UPDATE_NETWORK",
+			"Failed to flush requests: ", err)
+	}
+
+	return err
 }
 
 func (m *ARPMechanism) packetHandler(rw of.ResponseWriter, r *of.Request) {

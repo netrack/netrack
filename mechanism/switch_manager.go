@@ -64,23 +64,31 @@ func (m *SwitchManager) CreateSwitch(conn of.OFPConn) error {
 	log.DebugLog("switch_manager/CREATE_SWITCH",
 		"Switch successfully booted for ", r.Proto)
 
+	// Create mechanism managers
+	linkManager := &LinkMechanismManager{
+		MechanismManager: MechanismManager{LinkMechanisms()},
+	}
+
+	networkManager := &NetworkMechanismManager{
+		MechanismManager: MechanismManager{NetworkMechanisms()},
+	}
+
+	extensionManager := &ExtensionMechanismManager{
+		MechanismManager: MechanismManager{ExtensionMechanisms()},
+	}
+
 	// Create a new mechanism driver context
 	context := &MechanismContext{sw, rpc.New(), of.NewServeMux()}
 
-	drivers := make(map[string]Mechanism)
-	for _, name := range MechanismNameList() {
-		// Create instances of registered drivers
-		driver := MechanismByName(name)
-		drivers[name] = driver.New()
-	}
-
-	// Create mechanism driver manager
-	mechanisms := &MechanismManager{drivers}
-	mechanisms.Enable(context)
+	linkManager.Enable(context)
+	networkManager.Enable(context)
+	extensionManager.Enable(context)
 
 	// Since switch already booted, activate drivers
 	// TODO: make this configurable (or deactivate all by default)
-	mechanisms.Activate()
+	linkManager.Activate()
+	networkManager.Activate()
+	extensionManager.Activate()
 
 	log.DebugLog("switch_manager/CREATE_SWITCH",
 		"Switch successfully created")
@@ -89,7 +97,10 @@ func (m *SwitchManager) CreateSwitch(conn of.OFPConn) error {
 	defer m.lock.Unlock()
 
 	m.entries[context.Switch.ID()] = &SwitchContext{
-		Context: context, Mechanism: mechanisms,
+		MechanismContext: context,
+		Links:            linkManager,
+		Networks:         networkManager,
+		Extensions:       extensionManager,
 	}
 
 	// Serve can delete context from entries list,
@@ -99,9 +110,9 @@ func (m *SwitchManager) CreateSwitch(conn of.OFPConn) error {
 	return nil
 }
 
-// SwitchContextByID returns swithc context of managing switch,
+// SwitchContext returns switch context of managing switch,
 // ErrSwitchNotFound returned when switch is not managed by SwitchManager.
-func (m *SwitchManager) SwitchContextByID(dpid string) (*SwitchContext, error) {
+func (m *SwitchManager) SwitchContext(dpid string) (*SwitchContext, error) {
 	m.lock.RLock()
 	defer m.lock.RUnlock()
 

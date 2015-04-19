@@ -2,16 +2,16 @@ package httprest
 
 import (
 	"fmt"
-	"net"
+	//"net"
 	"net/http"
-	"strings"
+	//"strings"
 
-	"github.com/netrack/netrack/httprest/format"
+	//"github.com/netrack/netrack/httprest/format"
 	"github.com/netrack/netrack/httprest/v1/models"
 	"github.com/netrack/netrack/httputil"
 	"github.com/netrack/netrack/logging"
 	"github.com/netrack/netrack/mechanism"
-	"github.com/netrack/netrack/mechanism/rpc"
+	//"github.com/netrack/netrack/mechanism/rpc"
 )
 
 func init() {
@@ -40,12 +40,12 @@ func (h *NetworkHandler) Enable(c *mech.HTTPDriverContext) {
 	h.C.Mux.HandleFunc("PUT", "/v1/switches/{dpid}/interfaces/{interface}/l3/address", h.createHandler)
 	h.C.Mux.HandleFunc("DELETE", "/v1/switches/{dpid}/interfaces/{interface}/l3/address", h.destroyHandler)
 
-	log.InfoLog("netw_handlers/ENABLE_HOOK",
+	log.InfoLog("network_handlers/ENABLE_HOOK",
 		"IP address management enabled")
 }
 
-func (h *NetworkHandler) switchPort(rw http.ResponseWriter, r *http.Request) (mech.SwitchPort, error) {
-	log.InfoLog("netw_handlers/SWICH_PORT",
+func (h *NetworkHandler) context(rw http.ResponseWriter, r *http.Request) (*mech.SwitchContext, mech.SwitchPort, error) {
+	log.InfoLog("network_handlers/SWICH_PORT",
 		"Got request to handle L3 address")
 
 	dpid := httputil.Param(r, "dpid")
@@ -53,121 +53,141 @@ func (h *NetworkHandler) switchPort(rw http.ResponseWriter, r *http.Request) (me
 
 	f := WriteFormat(r)
 
-	log.DebugLogf("netw_handlers/SWITCH_PORT",
+	log.DebugLogf("network_handlers/CONTEXT",
 		"Request handle L3 address of: %s dev %s", dpid, iface)
 
-	c, err := h.C.SwitchManager.SwitchContextByID(dpid)
+	context, err := h.C.SwitchManager.SwitchContext(dpid)
 	if err != nil {
-		log.ErrorLog("netw_handlers/SWITCH_PORT",
+		log.ErrorLog("network_handlers/CONTEXT",
 			"Failed to find requested datapath: ", err)
 
 		text := fmt.Sprintf("switch '%s' not found", dpid)
+
 		f.Write(rw, r, models.Error{text})
 		rw.WriteHeader(http.StatusNotFound)
 
-		return nil, fmt.Errorf(text)
+		return nil, nil, fmt.Errorf(text)
 	}
 
-	port, err := c.Context.Switch.PortByName(iface)
+	port, err := context.Switch.PortByName(iface)
 	if err != nil {
-		log.ErrorLog("netw_handlers/SHOW_HANDER",
+		log.ErrorLog("network_handlers/CONTEXT",
 			"Failed to find requested interface: ", iface)
 
 		text := fmt.Sprintf("switch '%s' does not have '%s' interface", dpid, iface)
+
 		f.Write(rw, r, models.Error{text})
 		rw.WriteHeader(http.StatusNotFound)
 
-		return nil, fmt.Errorf(text)
+		return nil, nil, fmt.Errorf(text)
 	}
 
-	if port.NetworkDriver() == nil {
-		log.ErrorLog("netw_handlers/SWITCH_PORT",
-			"Failed to find L3 driver on interface: ", iface)
-
-		text := fmt.Sprintf("L3 protocol disabled on '%s' interface", iface)
-		f.Write(rw, r, models.Error{text})
-		rw.WriteHeader(http.StatusConflict)
-
-		return nil, fmt.Errorf(text)
-	}
-
-	return port, nil
+	return context, port, nil
 }
 
 func (h *NetworkHandler) indexHandler(rw http.ResponseWriter, r *http.Request) {
 }
 
 func (h *NetworkHandler) createHandler(rw http.ResponseWriter, r *http.Request) {
-	log.InfoLog("netw_handlers/CREATE_HANDLER",
+	log.InfoLog("network_handlers/CREATE_HANDLER",
 		"Got request to create L3 address")
 
 	rf, wf := Format(r)
 
-	port, err := h.switchPort(rw, r)
+	switchContext, switchPort, err := h.context(rw, r)
 	if err != nil {
 		return
 	}
 
-	var addr models.Networkaddress
-	if err = rf.Read(rw, r, &addr); err != nil {
-		log.ErrorLog("netw_handlers/CREATE_HANDLER",
-			"Failed to parse request address: ", err)
+	var requestAddr models.NetworkAddr
+	if err = rf.Read(rw, r, &requestAddr); err != nil {
+		log.ErrorLog("network_handlers/CREATE_HANDLER",
+			"Failed to read request body: ", err)
 
-		wf.Write(rw, r, models.Error{"failed to parse request address"})
+		wf.Write(rw, r, models.Error{"failed to read request body"})
 		rw.WriteHeader(http.StatusBadRequest)
 
 		return
 	}
 
-}
-
-func (h *NetworkHandler) showHandler(rw http.ResponseWriter, r *http.Request) {
-	log.InfoLog("netw_handlers/SHOW_HANDLER",
-		"Got request to show L3 address")
-
-	rf, wf := Format(r)
-
-	port, err := h.switchPort(rw, r)
+	networkDrv := switchContext.Networks.NetworkDriver()
+	networkAddr, err := networkDrv.ParseAddr(requestAddr.Addr)
 	if err != nil {
-		return
-	}
+		log.ErrorLog("network_handlers/CREATE_HANDLER",
+			"Failed to parse request address: ", err)
 
-	network := driver.Network()
-	if network.Addr == "" {
-		log.ErrorLog("netw_handlers/SHOW_HANDLER",
-			"Failed to find L3 protocol on interface: ", dpid)
-
-		text := fmt.Sprintf("protocol '%s' enabled, but address "+
-			"is not assigned to '%s' interface", network.Proto, iface)
-
-		wf.Write(rw, r, models.Error{text})
-		rw.WriteHeader(http.StatusNotFound)
+		wf.Write(rw, r, models.Error{"failed to parse request"})
+		rw.WriteHeader(http.StatusBadRequest)
 
 		return
 	}
 
-	// Return L3 address
-	wf.Write(rw, r, models.NetworkAddr{
-		Type: string(driver.Proto),
-		Addr: network.Addr.String(),
-	})
+	networkContext := mech.NetworkContext{
+		Addr: networkAddr,
+		Port: switchPort.Name(),
+	}
+
+	err = switchContext.Networks.UpdateNetwork(networkContext)
+	if err != nil {
+		log.ErrorLog("network_handlers/CREATE_HANDLER",
+			"Failed to createa a new L3 address: ", err)
+
+		wf.Write(rw, r, models.Error{"failed create a new L3 address"})
+		rw.WriteHeader(http.StatusConflict)
+
+		return
+	}
 
 	rw.WriteHeader(http.StatusOK)
 }
 
+func (h *NetworkHandler) showHandler(rw http.ResponseWriter, r *http.Request) {
+	log.InfoLog("network_handlers/SHOW_HANDLER",
+		"Got request to show L3 address")
+
+	// rf, wf := Format(r)
+
+	// port, err := h.switchPort(rw, r)
+	// if err != nil {
+	// 	return
+	// }
+
+	// network := driver.Network()
+	// if network.Addr == "" {
+	// 	log.ErrorLog("network_handlers/SHOW_HANDLER",
+	// 		"Failed to find L3 protocol on interface: ", dpid)
+
+	// 	text := fmt.Sprintf("protocol '%s' enabled, but address "+
+	// 		"is not assigned to '%s' interface", network.Proto, iface)
+
+	// 	wf.Write(rw, r, models.Error{text})
+	// 	rw.WriteHeader(http.StatusNotFound)
+
+	// 	return
+	// }
+
+	// // Return L3 address
+	// wf.Write(rw, r, models.NetworkAddr{
+	// 	Type: string(driver.Proto),
+	// 	Addr: network.Addr.String(),
+	// })
+
+	// rw.WriteHeader(http.StatusOK)
+}
+
 func (h *NetworkHandler) destroyHandler(rw http.ResponseWriter, r *http.Request) {
-	log.InfoLog("netw_handlers/DESTROY_HANDLER",
+	log.InfoLog("network_handlers/DESTROY_HANDLER",
 		"Got request to destroy L3 address")
 
 	//rf, wf := Format(r)
 
-	port, err := h.switchPort(rw, r)
-	if err != nil {
-		return
-	}
+	// port, err := h.switchPort(rw, r)
+	// if err != nil {
+	// 	return
+	// }
 
-	driver := port.NetworkDriver()
-	driver.DeteleNework(mech.NetworkContext{})
+	// driver := port.NetworkDriver()
+	// driver.DeteleNework(mech.NetworkContext{})
 
-	rw.WriteHeader(http.StatusOK)
+	// rw.WriteHeader(http.StatusOK)
 }

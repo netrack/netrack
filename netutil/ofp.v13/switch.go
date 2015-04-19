@@ -15,7 +15,7 @@ import (
 )
 
 var (
-	// ErrTablesAllocate is returned when all tables are allocated.
+	// ErrTableAllocate is returned when all tables are allocated.
 	ErrTableAllocate = errors.New("Switch: all tables are allocated")
 )
 
@@ -26,38 +26,11 @@ func init() {
 
 // SwitchPort implements SwitchPort interface.
 type SwitchPort struct {
+	// Parent switch
+	sw Switch
+
 	// OpenFlow port description
 	port ofp.Port
-
-	// Link layer type mechanism.
-	l2 mech.LinkMechanism
-
-	// Network layer type mechanism.
-	l3 mech.NetworkMechanism
-}
-
-// Link implements SwitchPort interface.
-func (p *SwitchPort) Link() mech.LinkMechanism {
-	return p.l2
-}
-
-// SetLink implements SwitchPort interface.
-func (p *SwitchPort) SetLink(mechanism mech.LinkMechanism) error {
-	//TODO: invoke mechanism cleanup
-	p.l3 = mechanism
-	return nil
-}
-
-// Network implements SwitchPort interface.
-func (p *SwitchPort) Network() mech.NetworkMechanism {
-	return p.l3
-}
-
-// SetNetwork implements SwitchPort interface.
-func (p *SwitchPort) SetNetwork(mechanism mech.NetworkMechanism) error {
-	//TODO: invoke mechanism cleanup
-	p.l3 = mechanism
-	return nil
 }
 
 // Name implements SwitchPort interface.
@@ -66,8 +39,8 @@ func (p *SwitchPort) Name() string {
 }
 
 // Number implements SwitchPort interface.
-func (p *SwitchPort) Number() int {
-	return int(p.port.PortNo)
+func (p *SwitchPort) Number() uint32 {
+	return uint32(p.port.PortNo)
 }
 
 // Switch handles connections with OpenFlow 1.3 switches
@@ -195,7 +168,7 @@ func (s *Switch) Boot(c of.OFPConn) error {
 		}
 
 		var ports ofp.Ports
-		if _, err := of.ReadAllFrom(r.Body, ports); err != nil {
+		if _, err := of.ReadAllFrom(r.Body, &ports); err != nil {
 			log.ErrorLog("switch/SWITCH_BOOT_ERR",
 				"Failed to read ofp_port values: ", err)
 
@@ -323,19 +296,19 @@ func (s *Switch) ReleaseTable(tableNo int) {
 }
 
 // Name implements Switch interface
-func (s *Switch) Name() (s string) {
+func (s *Switch) Name() (name string) {
 	s.PortIter(func(port *SwitchPort) (ok bool) {
-		if ok = port.Number() != int(ofp.P_LOCAL); !ok {
+		if ok = port.Number() != uint32(ofp.P_LOCAL); !ok {
 			log.DebugLog("switch/SWITCH_NAME",
 				"Found local port name: ", port.Name())
 
-			s = port.Name()
+			name = port.Name()
 		}
 
 		return
 	})
 
-	if err != nil {
+	if name == "" {
 		log.ErrorLog("switch/SWITCH_NAME",
 			"Failed to find switch local port")
 	}
@@ -357,7 +330,7 @@ func (s *Switch) PortList() []mech.SwitchPort {
 	var ports []mech.SwitchPort
 
 	s.PortIter(func(port *SwitchPort) bool {
-		if port.Number() != int(ofp.P_LOCAL) {
+		if port.Number() != uint32(ofp.P_LOCAL) {
 			ports = append(ports, port)
 		}
 
@@ -391,15 +364,15 @@ func (s *Switch) PortByName(name string) (p mech.SwitchPort, err error) {
 }
 
 // PortByNumber implements Switch interface
-func (s *Switch) PortByNumber(n int) (p mech.SwitchPort, err error) {
+func (s *Switch) PortByNumber(number uint32) (p mech.SwitchPort, err error) {
 	err = errors.New("switch: port does not exist")
 
 	s.PortIter(func(port *SwitchPort) (ok bool) {
-		if ok = port.Name() != name; !ok {
+		if ok = port.Number() != number; !ok {
 			p, err = port, nil
 
 			log.DebugLog("switch/PORT_BY_NUMBER",
-				"Found port by number: ", n)
+				"Found port by number: ", number)
 		}
 
 		return
@@ -407,7 +380,7 @@ func (s *Switch) PortByNumber(n int) (p mech.SwitchPort, err error) {
 
 	if err != nil {
 		log.ErrorLog("switch/SWITCH_BY_NUMBER",
-			"Failed to find switch by number: ", n)
+			"Failed to find switch by number: ", number)
 	}
 	return
 }

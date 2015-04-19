@@ -1,5 +1,9 @@
 package mech
 
+import (
+	"github.com/netrack/netrack/logging"
+)
+
 const (
 	// Full-Duplex system, allows communication in both directions.
 	LinkModeFullDuplex LinkMode = "FULL-DUPLEX"
@@ -34,15 +38,15 @@ type LinkAddr interface {
 
 // LinkContext wraps link layer resources and provides
 // methods for accessing other link information.
-type LinkContext struct {
+type LinkContext interface {
 	// Link layer address.
-	Addr LinkAddr
+	Addr() LinkAddr
 
 	// Link communication mode.
-	Mode LinkMode
+	Mode() LinkMode
 
 	// Link bandwidth.
-	Bandwidth int
+	Bandwidth() int
 }
 
 // LinkMechanism is the interface implemented by an object
@@ -50,48 +54,155 @@ type LinkContext struct {
 type LinkMechanism interface {
 	Mechanism
 
-	// Proto returns link layer encapsulation protocol.
-	Proto() LinkProto
-
-	// Addr returns link layer address (hardware address).
-	Addr() LinkAddr
-
-	SetAddr(LinkAddr) error
-
 	// UpdateLink is called for all changes to link state.
 	UpdateLink(*LinkContext) error
 
-	// Encapsulate wraps reader data with link layer frame.
-	//Encapsulate(io.Reader) (io.Reader, error)
+	// DeleteLink erases all allocated resources.
+	DeleteLink(*LinkContext) error
+}
+
+// BaseLinkMechanism implements LinkMechanism interface.
+type BaseLinkMechanism struct {
+	BaseMechanism
+}
+
+// CreateLink implements LinkMechanism interface.
+func (m *BaseLinkMechanism) CreateLink(c *LinkContext) error {
+	return nil
+}
+
+// DeleteLink implements LinkMechanism interface.
+func (m *BaseLinkMechanism) DeleteLink(c *LinkContext) error {
+	return nil
 }
 
 // LinkMechanismConstructor is a genereic
 // constructor for data link type mechanisms.
-type LinkMechanismContructor interface {
+type LinkMechanismConstructor interface {
 	// New returns a new LinkMechanism instance.
 	New() LinkMechanism
 }
 
 // LinkMechanismConstructorFunc is a function adapter for
 // LinkMechanismConstructor.
-type LinkMechanismContructorFunc func() LinkMechanism
+type LinkMechanismConstructorFunc func() LinkMechanism
 
-func (fn LinkMechanismContructorFunc) New() LinkMechanism {
+func (fn LinkMechanismConstructorFunc) New() LinkMechanism {
 	return fn()
 }
 
-var links = make(LinkMechanismMap)
+var links = make(map[string]LinkMechanismConstructor)
 
-func RegisterLinkMechanism(name string, mechanism LinkMechanismContructor) {
-	if mechanism == nil {
-		log.FatalLog("mechanism/REGISTER_LINK_MECHANISM",
-			"Failed to register nil link mechanism for: ", name)
+// RegisterLinkMechanism registers a new link layer mechanism
+// under specified name.
+func RegisterLinkMechanism(name string, ctor LinkMechanismConstructor) {
+	if ctor == nil {
+		log.FatalLog("link/REGISTER_LINK_MECHANISM",
+			"Failed to register nil link constructor for: ", name)
 	}
 
 	if _, dup := links[name]; dup {
-		log.FatalLog("mechanism/REGISTER_LINK_MECHANISM",
-			"Falied to register duplicate link mechanism for: ", name)
+		log.FatalLog("link/REGISTER_LINK_MECHANISM",
+			"Falied to register duplicate link constructor for: ", name)
 	}
 
-	links[name] = mechanism
+	links[name] = ctor
+}
+
+// LinkMechanisms retruns instances of registered mechanisms.
+func LinkMechanisms() LinkMechanismMap {
+	lmap := make(LinkMechanismMap)
+
+	for name, constructor := range links {
+		lmap.Set(name, constructor.New())
+	}
+
+	return lmap
+}
+
+// LinkMechanismMap implements MechanismMap interface.
+type LinkMechanismMap map[string]LinkMechanism
+
+// Get returns Mechanism by specified name.
+func (m LinkMechanismMap) Get(s string) (Mechanism, bool) {
+	mechanism, ok := m[s]
+	return mechanism, ok
+}
+
+// Set registers mechanism under specified name.
+func (m LinkMechanismMap) Set(s string, mechanism Mechanism) {
+	lmechanism, ok := mechanism.(LinkMechanism)
+	if !ok {
+		log.ErrorLog("link/SET_MECHANISM",
+			"Failed to cast to link layer mechanism")
+		return
+	}
+
+	m[s] = lmechanism
+}
+
+// Iter calls specified function for all registered mechanisms.
+func (m LinkMechanismMap) Iter(fn func(string, Mechanism) bool) {
+	for s, mechanism := range m {
+		fn(s, mechanism)
+	}
+}
+
+// LinkMechanismManager manages link layer mechanisms.
+type LinkMechanismManager struct {
+	// Base mechanism manager
+	MechanismManager
+
+	// Link layer context
+	context LinkContext
+}
+
+// Context returns link layer context
+func (m *LinkMechanismManager) Context() LinkContext {
+	return m.context
+}
+
+// Iter calls specified function for all registered link layer mechanisms.
+func (m *LinkMechanismManager) Iter(fn func(LinkMechanism) bool) {
+	m.Mechanisms.Iter(func(_ string, mechanism Mechanism) bool {
+		lmechanism, ok := mechanism.(LinkMechanism)
+		if !ok {
+			log.ErrorLog("link/ITERATE",
+				"Failed to cast mechanism to link layer mechanism.")
+			return true
+		}
+
+		return fn(lmechanism)
+	})
+}
+
+type linkMechanismFunc func(LinkMechanism, *LinkContext) error
+
+func (m *LinkMechanismManager) do(context *LinkContext, fn linkMechanismFunc) (err error) {
+	m.Iter(func(mechanism LinkMechanism) bool {
+		// Forward request only to activated mechanisms.
+		if !mechanism.Activated() {
+			return true
+		}
+
+		if err = fn(mechanism, context); err != nil {
+			log.ErrorLog("link/ALTER_LINK",
+				"Failed to alter link layer mechanism: ", err)
+			return false
+		}
+
+		return true
+	})
+
+	return
+}
+
+// UpdateLink calls corresponding method for activated mechanisms.
+func (m *LinkMechanismManager) UpdateLink(context *LinkContext) (err error) {
+	return m.do(context, LinkMechanism.UpdateLink)
+}
+
+// DeleteLink calls corresponding method for activated mechanisms.
+func (m *LinkMechanismManager) DeleteLink(context *LinkContext) (err error) {
+	return m.do(context, LinkMechanism.DeleteLink)
 }

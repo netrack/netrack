@@ -14,29 +14,29 @@ import (
 )
 
 func init() {
-	constructor := mech.MechanismDriverConstructorFunc(NewICMPMechanism)
-	mech.RegisterMechanismDriver("icmp-mechanism", constructor)
+	constructor := mech.NetworkMechanismConstructorFunc(NewICMPMechanism)
+	mech.RegisterNetworkMechanism("ICMP", constructor)
 }
 
 type ICMPMechanism struct {
-	mech.BaseMechanismDriver
+	mech.BaseNetworkMechanism
 
 	tableNo int
 }
 
-func NewICMPMechanism() mech.MechanismDriver {
+func NewICMPMechanism() mech.NetworkMechanism {
 	return &ICMPMechanism{}
 }
 
-func (m *ICMPMechanism) Enable(c *mech.MechanismDriverContext) {
-	m.BaseMechanismDriver.Enable(c)
+func (m *ICMPMechanism) Enable(c *mech.MechanismContext) {
+	m.BaseNetworkMechanism.Enable(c)
 
 	log.InfoLog("icmp/ENABLE_HOOK",
 		"Mechanism ICMP mechanism enabled")
 }
 
 func (m *ICMPMechanism) Activate() {
-	m.BaseMechanismDriver.Activate()
+	m.BaseNetworkMechanism.Activate()
 
 	// Allocate table for handling icmp protocol.
 	tableNo, err := m.C.Switch.AllocateTable()
@@ -112,6 +112,14 @@ func (m *ICMPMechanism) Activate() {
 	}
 }
 
+func (m *ICMPMechanism) UpdateNetwork(context *mech.NetworkContext) error {
+	return nil
+}
+
+func (m *ICMPMechanism) DeleteNetwork(context *mech.NetworkContext) error {
+	return nil
+}
+
 func (m *ICMPMechanism) packetInHandler(rw of.ResponseWriter, r *of.Request) {
 	//var p ofp.PacketIn
 	//p.ReadFrom(r.Body)
@@ -137,7 +145,7 @@ func (m *ICMPMechanism) packetInHandler(rw of.ResponseWriter, r *of.Request) {
 	//var hwaddr []byte
 	//portNo := p.Match.Field(ofp.XMT_OFB_IN_PORT).Value.UInt32()
 
-	//err := m.BaseMechanismDriver.C.Func.Call(rpc.T_OFP_PORT_HWADDR,
+	//err := m.BaseNetworkMechanism.C.Func.Call(rpc.T_OFP_PORT_HWADDR,
 	//rpc.UInt16Param(uint16(portNo)),
 	//rpc.ByteSliceResult(&hwaddr))
 
@@ -178,7 +186,7 @@ func (m *ICMPMechanism) Add(param rpc.Param, result rpc.Result) error {
 	//}
 
 	//var hwaddr []byte
-	//err := m.BaseMechanismDriver.C.Func.Call(rpc.T_OFP_PORT_HWADDR,
+	//err := m.BaseNetworkMechanism.C.Func.Call(rpc.T_OFP_PORT_HWADDR,
 	//rpc.UInt16Param(portNo),
 	//rpc.ByteSliceResult(&hwaddr))
 
@@ -216,7 +224,7 @@ func (m *ICMPMechanism) Add(param rpc.Param, result rpc.Result) error {
 	//"Failed to create a new ofp_flow_mod request: ", err)
 	//}
 
-	//if err = m.BaseMechanismDriver.C.Conn.Send(req); err != nil {
+	//if err = m.BaseNetworkMechanism.C.Conn.Send(req); err != nil {
 	//log.ErrorLogf("icmp/ADD_ICMP_SERVER_SEND_ERR",
 	//"Failed to send ofp_flow_mod request:", err)
 	//}

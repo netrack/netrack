@@ -9,7 +9,7 @@ import (
 // and mechanism drivers for a single switch.
 type SwitchContext struct {
 	// Mechanism driver context.
-	Context *MechanismContext
+	*MechanismContext
 
 	// Link layer mechanism manager.
 	Links *LinkMechanismManager
@@ -18,7 +18,7 @@ type SwitchContext struct {
 	Networks *NetworkMechanismManager
 
 	// Extention mechanism manager.
-	Extentions *ExtentionMechanismManager
+	Extensions *ExtensionMechanismManager
 }
 
 // SwichPort describes switch ports.
@@ -27,13 +27,13 @@ type SwitchPort interface {
 	Name() string
 
 	// Number returns number of the port in a switch.
-	Number() int
+	Number() uint32
 
 	// Link returns link layer resources.
-	Link() *LinkContext
+	//Link() *LinkContext
 
 	// Network returns network layer resources.
-	Network() *NetworkContext
+	//Network() *NetworkContext
 }
 
 // Switch describes instance of openflow device
@@ -69,7 +69,7 @@ type Switch interface {
 
 	// PortByNumber returns port instance by specified port number,
 	// an error will returned if port not found.
-	PortByNumber(int) (SwitchPort, error)
+	PortByNumber(uint32) (SwitchPort, error)
 }
 
 // SwitchConstructor is a generic constructor for switches.

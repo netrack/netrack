@@ -1,12 +1,60 @@
 package mech
 
 import (
+	"errors"
 	"sync/atomic"
 
-	"github.com/netrack/netrack/logging"
 	"github.com/netrack/netrack/mechanism/rpc"
 	"github.com/netrack/openflow"
 )
+
+var (
+	// ErrMechanismNotRegistered is returned on
+	// not registered mechanism operations.
+	ErrMechanismNotRegistered = errors.New(
+		"BaseMechanismManager: mechanism not registered")
+
+	// ErrMechanismAlreadyEnabled is returned on enabling
+	// of already enabled mechanism.
+	ErrMechanismAlreadyEnabled = errors.New(
+		"BaseMechanismManager: mechanism already enabled")
+
+	// ErrMechanismAlreadyActivated is returned on
+	// activating of already activated mechanism.
+	ErrMechanismAlreadyActivated = errors.New(
+		"BaseMechanismManager: mechanism already activated")
+
+	// ErrMechanismAlreadyDisabled is returned on
+	// disabling of already disabled mechanism.
+	ErrMechanismAlreadyDisabled = errors.New(
+		"BaseMechanismManager: mechanism already disabled")
+)
+
+const (
+	// Ethernet protocol.
+	ProtoEthernet Proto = "ETHERNET"
+
+	// Point-to-Point protocol string.
+	ProtoPPP Proto = "PPP"
+
+	// High-Level Data Link Control protocol.
+	ProtoHDLC Proto = "HDLC"
+
+	// Address Resolution protocol.
+	ProtoARP Proto = "ARP"
+
+	// Internet Control Message protocol.
+	ProtoICMP Proto = "ICMP"
+
+	// Internet Protocol version 4.
+	ProtoIPv4 Proto = "IPv4"
+
+	// Internet Protocol version 6.
+	ProtoIPv6 Proto = "IPv6"
+)
+
+// Proto is protocol string alias
+type Proto string
 
 // MechanismContext is a context, that shared among
 // mechanisms enabled for a particular device.
@@ -23,7 +71,7 @@ type MechanismContext struct {
 
 // Mechanism describes switch drivers
 type Mechanism interface {
-	// Enable performs driver initialization.
+	// Enable performs mechanism initialization.
 	Enable(*MechanismContext)
 
 	// Enabled returns true if Enable called before.
@@ -77,65 +125,116 @@ func (m *BaseMechanism) Disable() {
 	atomic.StoreInt64(&m.enabled, 0)
 }
 
-// MechanismConstructor is a generic
-// constructor for mechanism drivers.
-type MechanismConstructor interface {
-	// New creates a new Mechanism instance.
-	New() Mechanism
+// MechanismMap describes map for mechanism type.
+type MechanismMap interface {
+	// Get returns Mechanism by registered name.
+	Get(string) (Mechanism, bool)
+
+	// Set saves Mechanism under specified name.
+	Set(string, Mechanism)
+
+	// Iter call specified function for each element of map.
+	Iter(func(string, Mechanism) bool)
 }
 
-// MechanismCostructorFunc is a function adapter for
-// MechanismCostructor.
-type MechanismConstructorFunc func() Mechanism
+// BaseMechanismManager manages networking
+// mechanisms using drivers.
+type MechanismManager interface {
+	// Enable performs initialization of registered mechanisms.
+	Enable(*MechanismContext)
 
-// New implements MechanismConstructor interface.
-func (fn MechanismConstructorFunc) New() Mechanism {
-	return fn()
+	// EnableByName performs intialization of specified mechanism.
+	EnableByName(*MechanismContext) error
+
+	// Activate activates registered mechanisms.
+	Activate()
+
+	// ActivateByName activates scpecified mechanism.
+	ActivateByName(string) error
+
+	// Disable releases resources for registered mechanisms.
+	Disable()
+
+	// DisableByName releases resources of specified mechanism.
+	DisableByName(string) error
 }
 
-var mechanisms = make(map[string]MechanismConstructor)
+// BaseMechanismManager implements MechanismManager interface.
+type BaseMechanismManager struct {
+	Mechanisms MechanismMap
+}
 
-// RegisterMechanism makes a mechanism available by provided name
-func RegisterMechanism(name string, mechanism MechanismConstructor) {
-	if mechanism == nil {
-		log.FatalLog("driver/REGISTER_MECHANISM",
-			"Failed to register nil driver for: ", name)
+// Enable enables all registered mechanisms
+func (m *BaseMechanismManager) Enable(c *MechanismContext) {
+	m.Mechanisms.Iter(func(_ string, mechanism Mechanism) bool {
+		mechanism.Enable(c)
+		return true
+	})
+}
+
+// EnableByName enables mechanism driver by specified name,
+// error will be returned, when mechanism was not registered
+// or specified mechanism already enabled.
+func (m *BaseMechanismManager) EnableByName(name string, c *MechanismContext) error {
+	mechanism, ok := m.Mechanisms.Get(name)
+	if !ok {
+		return ErrMechanismNotRegistered
 	}
 
-	if _, dup := mechanisms[name]; dup {
-		log.FatalLog("driver/REGISTER_DUPLICATE",
-			"Falied to register duplicate driver for: ", name)
+	if mechanism.Enabled() {
+		return ErrMechanismAlreadyEnabled
 	}
 
-	mechanisms[name] = mechanism
+	mechanism.Enable(c)
+	return nil
 }
 
-// MechanismByName returns MechanismConstructor
-// registered for specified name, nil will be returned when
-// there is no required constructor.
-func MechanismByName(name string) MechanismConstructor {
-	return mechanisms[name]
+// Activate activates all registered mechanisms
+func (m *BaseMechanismManager) Activate() {
+	m.Mechanisms.Iter(func(_ string, mechanism Mechanism) bool {
+		mechanism.Activate()
+		return true
+	})
 }
 
-// MechanismNameList returns names of registered mechanism drivers.
-func MechanismNameList() []string {
-	var names []string
-
-	for name := range mechanisms {
-		names = append(names, name)
+// ActivateByName activates mechanism driver by specified name,
+// error will be returned, when mechanism was not registered
+// or specified mechanism already activated.
+func (m *BaseMechanismManager) ActivateByName(name string) error {
+	mechanism, ok := m.Mechanisms.Get(name)
+	if !ok {
+		return ErrMechanismNotRegistered
 	}
 
-	return names
-}
-
-// MechanismList returns list of registered
-// mechanism drivers constructors.
-func MechanismList() []MechanismConstructor {
-	var list []MechanismConstructor
-
-	for _, driver := range mechanisms {
-		list = append(list, driver)
+	if mechanism.Activated() {
+		return ErrMechanismAlreadyActivated
 	}
 
-	return list
+	mechanism.Activate()
+	return nil
+}
+
+// Disable disables all registered mechanisms
+func (m *BaseMechanismManager) Disable() {
+	m.Mechanisms.Iter(func(_ string, mechanism Mechanism) bool {
+		mechanism.Disable()
+		return true
+	})
+}
+
+// DisableByName disables mechanism driver by specified name,
+// error will be returned, when mechanism was not registered
+// or specified mechanism already disabled.
+func (m *BaseMechanismManager) DisableByName(name string) error {
+	mechanism, ok := m.Mechanisms.Get(name)
+	if !ok {
+		return ErrMechanismNotRegistered
+	}
+
+	if !mechanism.Enabled() {
+		return ErrMechanismAlreadyDisabled
+	}
+
+	mechanism.Disable()
+	return nil
 }

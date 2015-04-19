@@ -1,18 +1,15 @@
 package httprest
 
 import (
-	"fmt"
 	"net/http"
-	"strings"
 
 	"github.com/netrack/netrack/httprest/format"
-	"github.com/netrack/netrack/httprest/v1/models"
 	"github.com/netrack/netrack/httputil"
 	"github.com/netrack/netrack/logging"
 )
 
-func Format(r *http.Request) (format.ReadFrom, format.WriteFormat) {
-	return ReadFromat(r), WriteFormat(r)
+func Format(r *http.Request) (format.ReadFormatter, format.WriteFormatter) {
+	return ReadFormat(r), WriteFormat(r)
 }
 
 func ReadFormat(r *http.Request) format.ReadFormatter {
@@ -25,7 +22,7 @@ func ReadFormat(r *http.Request) format.ReadFormatter {
 	return f
 }
 
-func WriteFormat(r *http.Request) format.WriteFormater {
+func WriteFormat(r *http.Request) format.WriteFormatter {
 	f, err := format.Format(r.Header.Get(httputil.HeaderContentType))
 	if err != nil {
 		log.FatalLog("helpers/WRITE_FORMAT",

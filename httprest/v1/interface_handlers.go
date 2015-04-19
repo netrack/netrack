@@ -1,13 +1,13 @@
 package httprest
 
 import (
-	"fmt"
+	//"fmt"
 	"net/http"
-	"strings"
+	//"strings"
 
-	"github.com/netrack/netrack/httprest/format"
-	"github.com/netrack/netrack/httprest/v1/models"
-	"github.com/netrack/netrack/httputil"
+	//"github.com/netrack/netrack/httprest/format"
+	//"github.com/netrack/netrack/httprest/v1/models"
+	//"github.com/netrack/netrack/httputil"
 	"github.com/netrack/netrack/logging"
 	"github.com/netrack/netrack/mechanism"
 )
@@ -35,18 +35,18 @@ func (h *InterfaceHandler) Enable(c *mech.HTTPDriverContext) {
 	h.C.Mux.HandleFunc("GET", "/v1/switches/{dpid}/interfaces", h.indexHandler)
 	h.C.Mux.HandleFunc("GET", "/v1/switches/{dpid}/interfaces/{interface}", h.showHandler)
 
-	log.InfoLog("iface_mgmt/ENABLE_HOOK",
+	log.InfoLog("interface_handlers/ENABLE_HOOK",
 		"Interface management enabled")
 }
 
 // indexHandler returns list of interfaces of specified switch.
 func (h *InterfaceHandler) indexHandler(rw http.ResponseWriter, r *http.Request) {
-	// log.InfoLog("iface_mgmt/INDEX_HANDLER",
+	// log.InfoLog("interface_handlers/INDEX_HANDLER",
 	// 	"Got request to list interfaces")
 
 	// f, err := format.Format(r.Header.Get(httputil.HeaderAccept))
 	// if err != nil {
-	// 	log.ErrorLog("iface_mgmt/INDEX_HANDLER",
+	// 	log.ErrorLog("interface_handlers/INDEX_HANDLER",
 	// 		"Failed to select Accept formatter for request: ", err)
 
 	// 	formats := strings.Join(format.FormatNameList(), ", ")
@@ -57,12 +57,12 @@ func (h *InterfaceHandler) indexHandler(rw http.ResponseWriter, r *http.Request)
 	// }
 
 	// dpid := httputil.Param(r, "dpid")
-	// log.DebugLog("iface_mgmt/INDEX_HANDLER",
+	// log.DebugLog("interface_handlers/INDEX_HANDLER",
 	// 	"Request list interfaces of: ", dpid)
 
 	// c, err := h.C.SwitchManager.SwitchContextByID(dpid)
 	// if err != nil {
-	// 	log.ErrorLog("iface_mgmt/INDEX_HANDLER",
+	// 	log.ErrorLog("interface_handlers/INDEX_HANDLER",
 	// 		"Failed to find requested datapath: ", err)
 
 	// 	f.Write(rw, r, models.Error{fmt.Sprintf("switch '%s' not found", dpid)})
@@ -71,7 +71,7 @@ func (h *InterfaceHandler) indexHandler(rw http.ResponseWriter, r *http.Request)
 	// }
 
 	// if err = f.Write(rw, r, c.Context.Switch.PortNameList()); err != nil {
-	// 	log.ErrorLog("iface_mgmt/INDEX_HANDLER",
+	// 	log.ErrorLog("interface_handlers/INDEX_HANDLER",
 	// 		"Failed to write list of interface names: ", err)
 
 	// 	rw.WriteHeader(http.StatusInternalServerError)

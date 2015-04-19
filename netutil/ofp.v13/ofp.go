@@ -8,22 +8,22 @@ import (
 )
 
 func init() {
-	constructor := mech.MechanismDriverConstructorFunc(NewOFPMechanism)
-	mech.RegisterMechanismDriver("ofp1.3-mechanism", constructor)
+	constructor := mech.ExtensionMechanismConstructorFunc(NewOFPMechanism)
+	mech.RegisterExtensionMechanism("ofp1.3-mechanism", constructor)
 }
 
 type OFPMechanism struct {
-	mech.BaseMechanismDriver
+	mech.BaseMechanism
 }
 
 // NewOFPMechanism creates new instance of OFPMechanism type.
-func NewOFPMechanism() mech.MechanismDriver {
+func NewOFPMechanism() mech.ExtensionMechanism {
 	return &OFPMechanism{}
 }
 
-// Enable implements MechanismDriver interface.
-func (m *OFPMechanism) Enable(c *mech.MechanismDriverContext) {
-	m.BaseMechanismDriver.Enable(c)
+// Enable implements Mechanism interface.
+func (m *OFPMechanism) Enable(c *mech.MechanismContext) {
+	m.BaseMechanism.Enable(c)
 
 	m.C.Mux.HandleFunc(of.T_ECHO_REQUEST, m.echoHandler)
 
@@ -31,9 +31,9 @@ func (m *OFPMechanism) Enable(c *mech.MechanismDriverContext) {
 		"Mechanism ofp1.3 enabled")
 }
 
-// Activate implements MechanismDriver interface.
+// Activate implements Mechanism interface.
 func (m *OFPMechanism) Activate() {
-	m.BaseMechanismDriver.Activate()
+	m.BaseMechanism.Activate()
 
 	// Write black-hole rule with the lowest priority.
 	// This rule prevents flooding of the controller with

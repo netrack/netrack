@@ -2,7 +2,6 @@ package httprest
 
 import (
 	"fmt"
-	"net"
 	"net/http"
 	"strings"
 
@@ -15,7 +14,7 @@ import (
 
 func init() {
 	// Register address management HTTP API driver.
-	constructor := mech.HTTPDriverConstructorFunc(NewBaseHandlers)
+	constructor := mech.HTTPDriverConstructorFunc(NewBaseHandler)
 	mech.RegisterHTTPDriver(constructor)
 }
 
@@ -24,8 +23,8 @@ type BaseHandler struct {
 	mech.BaseHTTPDriver
 }
 
-func NewBaseHandlers() mech.HTTPDriver {
-	return &BaseHandlers{}
+func NewBaseHandler() mech.HTTPDriver {
+	return &BaseHandler{}
 }
 
 func (h *BaseHandler) Enable(c *mech.HTTPDriverContext) {
@@ -46,14 +45,16 @@ func (h *BaseHandler) acceptFilter(rw http.ResponseWriter, r *http.Request) {
 
 		formats := strings.Join(format.FormatNameList(), ", ")
 
-		f.Write(rw, r, models.Error{fmt.Sprintf("only '%s' are acceptable", formats)})
 		rw.WriteHeader(http.StatusNotAcceptable)
-
-		return
+		f.Write(rw, r, models.Error{fmt.Sprintf("only '%s' are acceptable", formats)})
 	}
 }
 
 func (h *BaseHandler) contentFilter(rw http.ResponseWriter, r *http.Request) {
+	if r.ContentLength == 0 {
+		return
+	}
+
 	f, err := format.Format(r.Header.Get(httputil.HeaderContentType))
 	if err != nil {
 		log.ErrorLog("base_handlers/CONTENT_FILTER",
@@ -61,9 +62,7 @@ func (h *BaseHandler) contentFilter(rw http.ResponseWriter, r *http.Request) {
 
 		formats := strings.Join(format.FormatNameList(), ", ")
 
-		f.Write(rw, r, models.Error{fmt.Sprintf("only '%s' are supported", formats)})
 		rw.WriteHeader(http.StatusUnsupportedMediaType)
-
-		return
+		f.Write(rw, r, models.Error{fmt.Sprintf("only '%s' are supported", formats)})
 	}
 }

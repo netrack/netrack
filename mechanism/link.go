@@ -1,6 +1,10 @@
 package mech
 
 import (
+	"errors"
+	"io"
+
+	"github.com/netrack/netrack/ioutil"
 	"github.com/netrack/netrack/logging"
 )
 
@@ -16,37 +20,133 @@ const (
 // LinkMode is a link communication mode.
 type LinkMode string
 
-const (
-	// High-Level Data Link Control protocol (ISO 13239)
-	LinkProtoHDLC LinkProto = "HDLC"
-
-	// Point-to-Point protocol (RFC 1661)
-	LinkProtoPPP LinkProto = "PPP"
-
-	// Ethernet protocol
-	LinkProtoEthernet LinkProto = "ETHERNET"
-)
-
-// LinkProto is a data link layer protocol.
-type LinkProto string
-
 // LinkAddr represents a L2 address.
 type LinkAddr interface {
 	// String returns string form of address.
 	String() string
+
+	// Bytes returns raw address representation.
+	Bytes() []byte
 }
 
 // LinkContext wraps link layer resources and provides
 // methods for accessing other link information.
-type LinkContext interface {
+type LinkContext struct {
 	// Link layer address.
-	Addr() LinkAddr
+	Addr LinkAddr
 
 	// Link communication mode.
-	Mode() LinkMode
+	Mode LinkMode
 
 	// Link bandwidth.
-	Bandwidth() int
+	Bandwidth int
+}
+
+// LinkFrame describes OSI L2 PDU.
+type LinkFrame interface {
+	// DstAddr returns frame destination address.
+	DstAddr() LinkAddr
+
+	// SrcAddr returns frame source address.
+	SrcAddr() LinkAddr
+
+	// Proto returns payload protocol type. Value of
+	// Proto depends on link layer encapsulation. In
+	// case of ethernet Proto returns IANA ethernet types.
+	Proto() Proto
+
+	// Len returns header length.
+	Len() int64
+}
+
+// BaseLinkFrame implements LinkFrame interface.
+type BaseLinkFrame struct {
+	// Destination link layer address
+	Dst LinkAddr
+
+	// Source link layer address
+	Src LinkAddr
+
+	// Paayload protocol type.
+	Protocol Proto
+}
+
+func (f *BaseLinkFrame) DstAddr() LinkAddr {
+	return f.Dst
+}
+
+func (f *BaseLinkFrame) SrcAddr() LinkAddr {
+	return f.Src
+}
+
+func (f *BaseLinkFrame) Proto() Proto {
+	return f.Protocol
+}
+
+func (f *BaseLinkFrame) Len() int64 {
+	return 0
+}
+
+// LinkReaderFrom describes types, that can read link layer header.
+type LinkFrameReader interface {
+	// ReadFrame read link layer header.
+	ReadFrame(io.Reader) (LinkFrame, error)
+}
+
+// MakeLinkReaderFrom is a helper to transform LinkFrameReader type to io.ReaderFrom
+func MakeLinkReaderFrom(rf LinkFrameReader, f *LinkFrame) io.ReaderFrom {
+	return ioutil.ReaderFromFunc(func(r io.Reader) (int64, error) {
+		frame, err := rf.ReadFrame(r)
+		if err != nil {
+			return 0, err
+		}
+
+		*f = frame
+		return frame.Len(), nil
+	})
+}
+
+// LinkFramWriter describes types, that can write link layer header.
+type LinkFrameWriter interface {
+	// WriteFrame write link layer header.
+	WriteFrame(io.Writer, LinkFrame) error
+}
+
+// MakeLinkWriterTo is a helper to transform LinkFrameWriter type to io.WriterTo
+func MakeLinkWriterTo(wf LinkFrameWriter, f LinkFrame) io.WriterTo {
+	return ioutil.WriterToFunc(func(w io.Writer) (int64, error) {
+		// FIXME: written more that 0 bytes
+		return 0, wf.WriteFrame(w, f)
+	})
+}
+
+// LinkDriver describes types that handles
+// link layer protocols.
+type LinkDriver interface {
+	// ParseAddr returns
+	ParseAddr(s string) (LinkAddr, error)
+
+	// Addr returns link layer address of specified port.
+	Addr(portNo uint32) (LinkAddr, error)
+
+	// Reads link layer headers.
+	LinkFrameReader
+
+	// Writes link layer headers.
+	LinkFrameWriter
+}
+
+// BaseLinkDriver implements LinkDriver interface.
+type BaseLinkDriver struct{}
+
+// ParseAddr implements LinkDriver interface.
+func (d *BaseLinkDriver) ParseAddr(string) (LinkAddr, error) {
+	return nil, errors.New("BaseLinkDriver: not implemented")
+}
+
+// Addr implements LinkDriver interface.
+func (d *BaseLinkDriver) Addr(uint32) (LinkAddr, error) {
+	return nil, errors.New("BaseLinkDriver: not implemented")
 }
 
 // LinkMechanism is the interface implemented by an object
@@ -109,6 +209,39 @@ func RegisterLinkMechanism(name string, ctor LinkMechanismConstructor) {
 	links[name] = ctor
 }
 
+// LinkDriverConstructor is a generic
+// constructor for network drivers.
+type LinkDriverConstructor interface {
+	// New returns a new NetwordDriver instance.
+	New() LinkDriver
+}
+
+// LinkDriverConstructorFunc is a function adapter for
+// LinkDriverConstructor.
+type LinkDriverConstructorFunc func() LinkDriver
+
+func (fn LinkDriverConstructorFunc) New() LinkDriver {
+	return fn()
+}
+
+var linkDrivers = make(map[string]LinkDriverConstructor)
+
+// RegisterLinkDriver registers a new link layer driver
+// under specified name.
+func RegisterLinkDriver(name string, constructor LinkDriverConstructor) {
+	if constructor == nil {
+		log.FatalLog("link/REGISTER_LINK_DRIVER",
+			"Failed to register nil driver constructor for: ", name)
+	}
+
+	if _, dup := linkDrivers[name]; dup {
+		log.FatalLog("link/REGISTER_LINK_DRIVER",
+			"Falied to register duplicate driver constructor for: ", name)
+	}
+
+	linkDrivers[name] = constructor
+}
+
 // LinkMechanisms retruns instances of registered mechanisms.
 func LinkMechanisms() LinkMechanismMap {
 	lmap := make(LinkMechanismMap)
@@ -149,21 +282,31 @@ func (m LinkMechanismMap) Iter(fn func(string, Mechanism) bool) {
 }
 
 // LinkMechanismManager manages link layer mechanisms.
-type LinkMechanismManager struct {
-	// Base mechanism manager
+type LinkMechanismManager interface {
+	// Base mechanism manager.
 	MechanismManager
 
-	// Link layer context
-	context LinkContext
+	// Link driver interface.
+	LinkDriver
+
+	// UpdateLink forwards call to all registered mechanisms.
+	UpdateLink(*LinkContext) error
+
+	// DeleteLink forwards call to all registered mechanisms.
+	DeleteLink(*LinkContext) error
 }
 
-// Context returns link layer context
-func (m *LinkMechanismManager) Context() LinkContext {
-	return m.context
+// BaseLinkMechcanismManager implements LinkMechanismManager.
+type BaseLinkMechanismManager struct {
+	// Base mechanism manager instance.
+	BaseMechanismManager
+
+	// Link layer driver.
+	Driver LinkDriver
 }
 
 // Iter calls specified function for all registered link layer mechanisms.
-func (m *LinkMechanismManager) Iter(fn func(LinkMechanism) bool) {
+func (m *BaseLinkMechanismManager) Iter(fn func(LinkMechanism) bool) {
 	m.Mechanisms.Iter(func(_ string, mechanism Mechanism) bool {
 		lmechanism, ok := mechanism.(LinkMechanism)
 		if !ok {
@@ -178,7 +321,7 @@ func (m *LinkMechanismManager) Iter(fn func(LinkMechanism) bool) {
 
 type linkMechanismFunc func(LinkMechanism, *LinkContext) error
 
-func (m *LinkMechanismManager) do(context *LinkContext, fn linkMechanismFunc) (err error) {
+func (m *BaseLinkMechanismManager) do(context *LinkContext, fn linkMechanismFunc) (err error) {
 	m.Iter(func(mechanism LinkMechanism) bool {
 		// Forward request only to activated mechanisms.
 		if !mechanism.Activated() {
@@ -197,12 +340,32 @@ func (m *LinkMechanismManager) do(context *LinkContext, fn linkMechanismFunc) (e
 	return
 }
 
+// Addr implements LinkMechanismManager interface.
+func (m *BaseLinkMechanismManager) Addr(portNo uint32) (LinkAddr, error) {
+	return m.Driver.Addr(portNo)
+}
+
+// ParseAddr implements LinkMechanismManager interface.
+func (m *BaseLinkMechanismManager) ParseAddr(s string) (LinkAddr, error) {
+	return m.Driver.ParseAddr(s)
+}
+
+// ReadFrame implements LinkMechanismManager interface.
+func (m *BaseLinkMechanismManager) ReadFrame(r io.Reader) (LinkFrame, error) {
+	return m.Driver.ReadFrame(r)
+}
+
+// WriteFrame implements LinkMechanismManager interface.
+func (m *BaseLinkMechanismManager) WriteFrame(w io.Writer, f LinkFrame) error {
+	return m.Driver.WriteFrame(w, f)
+}
+
 // UpdateLink calls corresponding method for activated mechanisms.
-func (m *LinkMechanismManager) UpdateLink(context *LinkContext) (err error) {
+func (m *BaseLinkMechanismManager) UpdateLink(context *LinkContext) (err error) {
 	return m.do(context, LinkMechanism.UpdateLink)
 }
 
 // DeleteLink calls corresponding method for activated mechanisms.
-func (m *LinkMechanismManager) DeleteLink(context *LinkContext) (err error) {
+func (m *BaseLinkMechanismManager) DeleteLink(context *LinkContext) (err error) {
 	return m.do(context, LinkMechanism.DeleteLink)
 }

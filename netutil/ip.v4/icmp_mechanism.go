@@ -15,7 +15,7 @@ import (
 
 func init() {
 	constructor := mech.NetworkMechanismConstructorFunc(NewICMPMechanism)
-	mech.RegisterNetworkMechanism("ICMP", constructor)
+	mech.RegisterNetworkMechanism("icmp-mechanism", constructor)
 }
 
 type ICMPMechanism struct {
@@ -32,7 +32,7 @@ func (m *ICMPMechanism) Enable(c *mech.MechanismContext) {
 	m.BaseNetworkMechanism.Enable(c)
 
 	log.InfoLog("icmp/ENABLE_HOOK",
-		"Mechanism ICMP mechanism enabled")
+		"Mechanism ICMP enabled")
 }
 
 func (m *ICMPMechanism) Activate() {

@@ -18,7 +18,7 @@ var (
 // drivers associated with each switch.
 type SwitchManager struct {
 	// List of serving switches
-	entries map[string]*SwitchContext
+	entries map[string]*MechanismContext
 
 	// Lock for entries list
 	lock sync.RWMutex
@@ -29,7 +29,7 @@ type SwitchManager struct {
 func (m *SwitchManager) CreateSwitch(conn of.OFPConn) error {
 	// Make lazy intialization
 	if m.entries == nil {
-		m.entries = make(map[string]*SwitchContext)
+		m.entries = make(map[string]*MechanismContext)
 	}
 
 	// Read ofp_hello message to get protocol version
@@ -64,21 +64,42 @@ func (m *SwitchManager) CreateSwitch(conn of.OFPConn) error {
 	log.DebugLog("switch_manager/CREATE_SWITCH",
 		"Switch successfully booted for ", r.Proto)
 
-	// Create mechanism managers
-	linkManager := &LinkMechanismManager{
-		MechanismManager: MechanismManager{LinkMechanisms()},
+	// FIXME: should be configured through REST api.
+	var ldrv LinkDriver
+	for _, driver := range linkDrivers {
+		ldrv = driver.New()
+		break
 	}
 
-	networkManager := &NetworkMechanismManager{
-		MechanismManager: MechanismManager{NetworkMechanisms()},
+	// Create mechanism managers
+	linkManager := &BaseLinkMechanismManager{
+		BaseMechanismManager{LinkMechanisms()}, ldrv,
+	}
+
+	// FIXME: should be configured through REST api.
+	var ndrv NetworkDriver
+	for _, driver := range networkDrivers {
+		ndrv = driver.New()
+		break
+	}
+
+	networkManager := &BaseNetworkMechanismManager{
+		BaseMechanismManager{NetworkMechanisms()}, ndrv,
 	}
 
 	extensionManager := &ExtensionMechanismManager{
-		MechanismManager: MechanismManager{ExtensionMechanisms()},
+		BaseMechanismManager{ExtensionMechanisms()},
 	}
 
 	// Create a new mechanism driver context
-	context := &MechanismContext{sw, rpc.New(), of.NewServeMux()}
+	context := &MechanismContext{
+		Switch:    sw,
+		Func:      rpc.New(),
+		Mux:       of.NewServeMux(),
+		Link:      linkManager,
+		Network:   networkManager,
+		Extension: extensionManager,
+	}
 
 	linkManager.Enable(context)
 	networkManager.Enable(context)
@@ -96,12 +117,7 @@ func (m *SwitchManager) CreateSwitch(conn of.OFPConn) error {
 	m.lock.Lock()
 	defer m.lock.Unlock()
 
-	m.entries[context.Switch.ID()] = &SwitchContext{
-		MechanismContext: context,
-		Links:            linkManager,
-		Networks:         networkManager,
-		Extensions:       extensionManager,
-	}
+	m.entries[context.Switch.ID()] = context
 
 	// Serve can delete context from entries list,
 	// so call it after adding context to entries list.
@@ -112,7 +128,7 @@ func (m *SwitchManager) CreateSwitch(conn of.OFPConn) error {
 
 // SwitchContext returns switch context of managing switch,
 // ErrSwitchNotFound returned when switch is not managed by SwitchManager.
-func (m *SwitchManager) SwitchContext(dpid string) (*SwitchContext, error) {
+func (m *SwitchManager) Context(dpid string) (*MechanismContext, error) {
 	m.lock.RLock()
 	defer m.lock.RUnlock()
 

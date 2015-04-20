@@ -1,6 +1,8 @@
 package mech
 
 import (
+	"errors"
+
 	"github.com/netrack/netrack/logging"
 )
 
@@ -11,6 +13,9 @@ type NetworkAddr interface {
 
 	// Bytes returns raw address representation.
 	Bytes() []byte
+
+	// Mask return network layer address mask.
+	Mask() []byte
 }
 
 // NetworkContext wraps network resources and provides
@@ -18,15 +23,12 @@ type NetworkAddr interface {
 type NetworkContext struct {
 	// Network layer address.
 	Addr NetworkAddr
-
-	// Switch port name.
-	Port string
 }
 
 // NetworkPacket describes OSI L3 PDU.
 type NetworkPacket interface {
-	// DestAddr returns packet destination address.
-	DestAddr() NetworkAddr
+	// DstAddr returns packet destination address.
+	DstAddr() NetworkAddr
 
 	// SrcAddr returns packet source address.
 	SrcAddr() NetworkAddr
@@ -41,13 +43,30 @@ type NetworkPacket interface {
 	ContentLen() int64
 }
 
-// NetworkDriver describes types that
+// NetworkDriver describes types that handles
+// network layer protocol.
 type NetworkDriver interface {
 	// ParseAddr returns NetworkAddr from string.
 	ParseAddr(string) (NetworkAddr, error)
 
+	// Addr returns network layer address of specified link layer address.
+	//Addr(laddr LinkAddr) (NetworkAddr, error)
+
 	// Decapsulate removes network layer header from the packet.
-	Decapsulate(io.Reader) (NetworkPacket, error)
+	//Decapsulate(io.Reader) (NetworkPacket, error)
+}
+
+// BaseNetworkDriver implements NetworkDriver interface.
+type BaseNetworkDriver struct{}
+
+// ParseAddr implements NetworkDriver interface.
+func (d *BaseNetworkDriver) ParseAddr(string) (NetworkAddr, error) {
+	return nil, errors.New("BaseNetworkDriver: not implemented")
+}
+
+// Addr implements NetworkDriver interface.
+func (d *BaseNetworkDriver) Addr(laddr LinkAddr) (NetworkAddr, error) {
+	return nil, errors.New("BaseNetworkDriver: not implemented")
 }
 
 // NetworkMechanism is the interface implemented by an object
@@ -92,22 +111,55 @@ func (fn NetworkMechanismConstructorFunc) New() NetworkMechanism {
 	return fn()
 }
 
+// NetworkDriverConstructor is a generic
+// constructor for network drivers.
+type NetworkDriverConstructor interface {
+	// New returns a new NetwordDriver instance.
+	New() NetworkDriver
+}
+
+// NetworkDriverConstructorFunc is a function adapter for
+// NetworkDriverConstructor.
+type NetworkDriverConstructorFunc func() NetworkDriver
+
+func (fn NetworkDriverConstructorFunc) New() NetworkDriver {
+	return fn()
+}
+
 var networks = make(map[string]NetworkMechanismConstructor)
 
 // RegisterNetworkMechanism registers a new network layer mechanism
 // under specified name.
 func RegisterNetworkMechanism(name string, constructor NetworkMechanismConstructor) {
 	if constructor == nil {
-		log.FatalLog("mechanism/REGISTER_NETWORK_MECHANISM",
+		log.FatalLog("network/REGISTER_NETWORK_MECHANISM",
 			"Failed to register nil network constructor for: ", name)
 	}
 
 	if _, dup := networks[name]; dup {
-		log.FatalLog("mechanism/REGISTER_NETWORK_MECHANISM",
+		log.FatalLog("network/REGISTER_NETWORK_MECHANISM",
 			"Falied to register duplicate network constructor for: ", name)
 	}
 
 	networks[name] = constructor
+}
+
+var networkDrivers = make(map[string]NetworkDriverConstructor)
+
+// RegisterNetworkDriver registers a new network layer driver
+// under specified name.
+func RegisterNetworkDriver(name string, constructor NetworkDriverConstructor) {
+	if constructor == nil {
+		log.FatalLog("network/REGISTER_NETWORK_DRIVER",
+			"Failed to register nil driver constructor for: ", name)
+	}
+
+	if _, dup := networkDrivers[name]; dup {
+		log.FatalLog("network/REGISTER_NETWORK_DRIVER",
+			"Falied to register duplicate driver constructor for: ", name)
+	}
+
+	networkDrivers[name] = constructor
 }
 
 // NetworkMechanisms returns map of registered network layer mechanisms
@@ -154,8 +206,8 @@ type NetworkMechanismManager interface {
 	// Base mechanism manager interface.
 	MechanismManager
 
-	// NetworkDriver returns NetworkDriver instance.
-	NetworkDriver() NetworkDriver
+	// Network driver interface.
+	NetworkDriver
 
 	// UpdateNetwork forwards call to all registered mechanisms.
 	UpdateNetwork(*NetworkContext) error
@@ -168,11 +220,14 @@ type NetworkMechanismManager interface {
 type BaseNetworkMechanismManager struct {
 	// Base mechanism manager instance.
 	BaseMechanismManager
+
+	// Network layer driver.
+	Driver NetworkDriver
 }
 
-// Context returns link layer context
-func (m *BaseNetworkMechanismManager) Context() NetworkContext {
-	return m.context
+// ParseAddr parses string as network layer address.
+func (m *BaseNetworkMechanismManager) ParseAddr(s string) (NetworkAddr, error) {
+	return m.Driver.ParseAddr(s)
 }
 
 // Iter calls specified function for all registered link layer mechanisms.

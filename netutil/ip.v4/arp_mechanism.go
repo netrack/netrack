@@ -1,7 +1,7 @@
 package ip
 
 import (
-	//"net"
+	"net"
 	"sync"
 	"time"
 
@@ -55,7 +55,9 @@ func NewARPMechanism() mech.NetworkMechanism {
 func (m *ARPMechanism) Enable(c *mech.MechanismContext) {
 	m.BaseMechanism.Enable(c)
 
-	//m.C.Mux.HandleFunc(of.T_PACKET_IN, m.packetHandler)
+	// Handle incoming ARP requests.
+	m.C.Mux.HandleFunc(of.T_PACKET_IN, m.packetHandler)
+
 	log.InfoLog("arp/ENABLE", "Mechanism ARP enabled")
 }
 
@@ -68,7 +70,6 @@ func (m *ARPMechanism) Activate() {
 	if err != nil {
 		log.ErrorLog("arp/ACTIVATE_HOOK",
 			"Failed to allocate a new table: ", err)
-
 		return
 	}
 
@@ -97,14 +98,12 @@ func (m *ARPMechanism) Activate() {
 	if err != nil {
 		log.ErrorLog("arp/ACTIVATE_HOOK",
 			"Failed to create ofp_flow_mod request: ", err)
-
 		return
 	}
 
 	if err = m.C.Switch.Conn().Send(r); err != nil {
 		log.ErrorLog("arp/ACTIVATE_HOOK",
 			"Failed to send request: ", err)
-
 		return
 	}
 
@@ -119,14 +118,12 @@ func (m *ARPMechanism) Activate() {
 	if err != nil {
 		log.ErrorLog("arp/ACTIVATE_HOOK",
 			"Failed to create ofp_flow_mod request: ", err)
-
 		return
 	}
 
 	if err = m.C.Switch.Conn().Send(r); err != nil {
 		log.ErrorLog("arp/ACTIVATE_HOOK",
 			"Failed to send request: ", err)
-
 		return
 	}
 
@@ -146,7 +143,7 @@ func (m *ARPMechanism) UpdateNetwork(c *mech.NetworkContext) error {
 		ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_ETH_TYPE, of.Bytes(iana.ETHT_ARP), nil},
 		ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_ARP_OP, of.Bytes(l3.ARPOT_REQUEST), nil},
 		ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_ARP_THA, l2.HWUnspec, nil},
-		ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_ARP_TPA, c.Addr.Bytes(), nil},
+		ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_ARP_TPA, c.Addr.Bytes(), c.Addr.Mask()},
 	}}
 
 	// Send all such packets to controller
@@ -173,14 +170,12 @@ func (m *ARPMechanism) UpdateNetwork(c *mech.NetworkContext) error {
 	if err != nil {
 		log.ErrorLog("arp/UPDATE_NETWORK",
 			"Failed to create ofp_flow_mod request: ", err)
-
 		return err
 	}
 
 	if err = m.C.Switch.Conn().Send(r); err != nil {
 		log.ErrorLog("arp/UPDATE_NETWORK",
 			"Failed to send request: ", err)
-
 		return err
 	}
 
@@ -193,77 +188,64 @@ func (m *ARPMechanism) UpdateNetwork(c *mech.NetworkContext) error {
 }
 
 func (m *ARPMechanism) packetHandler(rw of.ResponseWriter, r *of.Request) {
-	//var packet ofp.PacketIn
-	//if _, err := packet.ReadFrom(r.Body); err != nil {
-	//log.DebugLog("arp/ARP_PACKET_HANDLER",
-	//"Failed to read ofp_packet_in message: ", err)
-	//return
-	//}
+	var packet ofp.PacketIn
+	var pdu2 mech.LinkFrame
+	var pdu3 l3.ARP
 
-	//if packet.TableID != TableARP {
-	//log.DebugLog("arp/PACKET_HANDLER",
-	//"Received packet from wrong table")
-	//return
-	//}
+	var err error
 
-	//var pdu2 l2.EthernetII
-	//var pdu3 l3.ARP
+	// Assume, that all packets are ARP protocol messages.
+	reader := mech.MakeLinkReaderFrom(m.C.Link, &pdu2)
+	if _, err = of.ReadAllFrom(r.Body, &packet, reader, &pdu3); err != nil {
+		log.ErrorLog("arp/ARP_PACKET_IN_HANDLER",
+			"Failed to read packet: ", err)
+		return
+	}
 
-	//if _, err = of.ReadAllFrom(r.Body, &pdu2, &pdu3); err != nil {
-	//log.ErrorLog("arp/ARP_PACKET_HANDLER",
-	//"Failed to read packet: ", err)
-	//return
-	//}
+	log.DebugLog("arp/ARP_PACKET_IN_HANDLER",
+		"Got ARP request to resolve: ", pdu3.ProtoDst)
 
-	//if _, err = eth.ReadFrom(r.Body); err != nil {
-	//log.ErrorLog("arp/ARP_PACKET_HANDLER")
-	//return
-	//}
+	// Use that port as egress to send response.
+	portNo := packet.Match.Field(ofp.XMT_OFB_IN_PORT).Value.UInt32()
 
-	//var arp l3.ARP
-	//if arp.ReadFrom(r.Body); arp.Operation != l3.ARPOT_REQUEST {
-	//return
-	//}
+	// Get link layer address associated with egress port.
+	laddr, err := m.C.Link.Addr(portNo)
+	if err != nil {
+		log.ErrorLogf("arp/PACKET_IN_HANDLER",
+			"Failed to resolve port '%s' hardware address: '%s'", portNo, err)
+		return
+	}
 
-	//var srcHWAddr []byte
-	//portNo := p.Match.Field(ofp.XMT_OFB_IN_PORT).Value.UInt32()
+	// Build link layer PDU.
+	pdu2 = &mech.BaseLinkFrame{pdu2.SrcAddr(), laddr, mech.Proto(iana.ETHT_ARP)}
 
-	//err := m.C.Func.Call(rpc.T_OFP_PORT_HWADDR,
-	//rpc.UInt16Param(uint16(portNo)),
-	//rpc.ByteSliceResult(&srcHWAddr))
+	// Build ARP response message.
+	pdu3 = l3.ARP{l3.ARPT_ETHERNET, iana.ETHT_IPV4, l3.ARPOT_REPLY,
+		net.HardwareAddr(laddr.Bytes()),
+		pdu3.ProtoDst,
+		pdu3.HWSrc,
+		pdu3.ProtoSrc,
+	}
 
-	//if err != nil {
-	//log.ErrorLog("arp/ARP_REQUEST_PORT_HWADDR_ERR",
-	//"Failed to find port hardware address: ", err)
-	//return
-	//}
+	packetOut := ofp.PacketOut{BufferID: ofp.NO_BUFFER,
+		InPort:  packet.Match.Field(ofp.XMT_OFB_IN_PORT).Value.PortNo(),
+		Actions: ofp.Actions{ofp.ActionOutput{ofp.P_IN_PORT, 0}},
+	}
 
-	//eth = l2.EthernetII{eth.HWSrc, net.HardwareAddr(srcHWAddr), iana.ETHT_ARP}
-	//arp = l3.ARP{l3.ARPT_ETHERNET, iana.ETHT_IPV4, l3.ARPOT_REPLY,
-	//net.HardwareAddr(srcHWAddr),
-	//arp.ProtoDst,
-	//arp.HWSrc,
-	//arp.ProtoSrc,
-	//}
+	writer := mech.MakeLinkWriterTo(m.C.Link, pdu2)
+	if _, err = of.WriteAllTo(rw, &packetOut, writer, &pdu3); err != nil {
+		log.ErrorLog("arp/ARP_REQUEST_WRITE_ERR",
+			"Failed to write ARP response: ", err)
 
-	//pout := ofp.PacketOut{BufferID: ofp.NO_BUFFER,
-	//InPort:  p.Match.Field(ofp.XMT_OFB_IN_PORT).Value.PortNo(),
-	//Actions: ofp.Actions{ofp.ActionOutput{ofp.P_IN_PORT, 0}},
-	//}
+		return
+	}
 
-	//_, err = of.WriteAllTo(rw, &pout, &eth, &arp)
-	//if err != nil {
-	//log.ErrorLog("arp/ARP_REQUEST_WRITE_ERR",
-	//"Failed to write ARP response: ", err)
-	//return
-	//}
-
-	//rw.Header().Set(of.TypeHeaderKey, of.T_PACKET_OUT)
-	//rw.Header().Set(of.VersionHeaderKey, ofp.VERSION)
-	//if err := rw.WriteHeader(); err != nil {
-	//log.ErrorLog("arp/ARP_REQUEST_SEND_ERR",
-	//"Failed to send ARP response: ", err)
-	//}
+	rw.Header().Set(of.TypeHeaderKey, of.T_PACKET_OUT)
+	rw.Header().Set(of.VersionHeaderKey, ofp.VERSION)
+	if err = rw.WriteHeader(); err != nil {
+		log.ErrorLog("arp/ARP_REQUEST_SEND_ERR",
+			"Failed to send ARP response: ", err)
+	}
 }
 
 func (m *ARPMechanism) resolveCaller(param rpc.Param, result rpc.Result) error {

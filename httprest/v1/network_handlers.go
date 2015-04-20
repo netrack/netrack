@@ -44,7 +44,7 @@ func (h *NetworkHandler) Enable(c *mech.HTTPDriverContext) {
 		"IP address management enabled")
 }
 
-func (h *NetworkHandler) context(rw http.ResponseWriter, r *http.Request) (*mech.SwitchContext, mech.SwitchPort, error) {
+func (h *NetworkHandler) context(rw http.ResponseWriter, r *http.Request) (*mech.MechanismContext, *mech.SwitchPort, error) {
 	log.InfoLog("network_handlers/SWICH_PORT",
 		"Got request to handle L3 address")
 
@@ -56,15 +56,15 @@ func (h *NetworkHandler) context(rw http.ResponseWriter, r *http.Request) (*mech
 	log.DebugLogf("network_handlers/CONTEXT",
 		"Request handle L3 address of: %s dev %s", dpid, iface)
 
-	context, err := h.C.SwitchManager.SwitchContext(dpid)
+	context, err := h.C.SwitchManager.Context(dpid)
 	if err != nil {
 		log.ErrorLog("network_handlers/CONTEXT",
 			"Failed to find requested datapath: ", err)
 
 		text := fmt.Sprintf("switch '%s' not found", dpid)
 
-		f.Write(rw, r, models.Error{text})
 		rw.WriteHeader(http.StatusNotFound)
+		f.Write(rw, r, models.Error{text})
 
 		return nil, nil, fmt.Errorf(text)
 	}
@@ -76,8 +76,8 @@ func (h *NetworkHandler) context(rw http.ResponseWriter, r *http.Request) (*mech
 
 		text := fmt.Sprintf("switch '%s' does not have '%s' interface", dpid, iface)
 
-		f.Write(rw, r, models.Error{text})
 		rw.WriteHeader(http.StatusNotFound)
+		f.Write(rw, r, models.Error{text})
 
 		return nil, nil, fmt.Errorf(text)
 	}
@@ -94,7 +94,7 @@ func (h *NetworkHandler) createHandler(rw http.ResponseWriter, r *http.Request) 
 
 	rf, wf := Format(r)
 
-	switchContext, switchPort, err := h.context(rw, r)
+	switchContext, _, err := h.context(rw, r)
 	if err != nil {
 		return
 	}
@@ -104,36 +104,37 @@ func (h *NetworkHandler) createHandler(rw http.ResponseWriter, r *http.Request) 
 		log.ErrorLog("network_handlers/CREATE_HANDLER",
 			"Failed to read request body: ", err)
 
-		wf.Write(rw, r, models.Error{"failed to read request body"})
 		rw.WriteHeader(http.StatusBadRequest)
+		wf.Write(rw, r, models.Error{"failed to read request body"})
 
 		return
 	}
 
-	networkDrv := switchContext.Networks.NetworkDriver()
-	networkAddr, err := networkDrv.ParseAddr(requestAddr.Addr)
+	networkAddr, err := switchContext.Network.ParseAddr(requestAddr.Addr)
 	if err != nil {
 		log.ErrorLog("network_handlers/CREATE_HANDLER",
 			"Failed to parse request address: ", err)
 
-		wf.Write(rw, r, models.Error{"failed to parse request"})
 		rw.WriteHeader(http.StatusBadRequest)
+		wf.Write(rw, r, models.Error{"failed to parse request"})
 
 		return
 	}
 
-	networkContext := mech.NetworkContext{
+	networkContext := &mech.NetworkContext{
 		Addr: networkAddr,
-		Port: switchPort.Name(),
+		//Port: switchPort.Name(),
 	}
 
-	err = switchContext.Networks.UpdateNetwork(networkContext)
+	//print(switchPort)
+
+	err = switchContext.Network.UpdateNetwork(networkContext)
 	if err != nil {
 		log.ErrorLog("network_handlers/CREATE_HANDLER",
 			"Failed to createa a new L3 address: ", err)
 
-		wf.Write(rw, r, models.Error{"failed create a new L3 address"})
 		rw.WriteHeader(http.StatusConflict)
+		wf.Write(rw, r, models.Error{"failed create a new L3 address"})
 
 		return
 	}

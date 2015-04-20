@@ -30,34 +30,12 @@ var (
 		"BaseMechanismManager: mechanism already disabled")
 )
 
-const (
-	// Ethernet protocol.
-	ProtoEthernet Proto = "ETHERNET"
-
-	// Point-to-Point protocol string.
-	ProtoPPP Proto = "PPP"
-
-	// High-Level Data Link Control protocol.
-	ProtoHDLC Proto = "HDLC"
-
-	// Address Resolution protocol.
-	ProtoARP Proto = "ARP"
-
-	// Internet Control Message protocol.
-	ProtoICMP Proto = "ICMP"
-
-	// Internet Protocol version 4.
-	ProtoIPv4 Proto = "IPv4"
-
-	// Internet Protocol version 6.
-	ProtoIPv6 Proto = "IPv6"
-)
-
 // Proto is protocol string alias
-type Proto string
+type Proto int
 
-// MechanismContext is a context, that shared among
-// mechanisms enabled for a particular device.
+// MechanismContext is a context, that shared among mechanisms
+// enabled for a particular device. It is a placeholder for
+// mechanism driver context and mechanism drivers for a single switch.
 type MechanismContext struct {
 	// OpenFlow switch instance.
 	Switch Switch
@@ -67,6 +45,15 @@ type MechanismContext struct {
 
 	// OpenFlow multiplexer handler.
 	Mux *of.ServeMux
+
+	// Link layer mechanism manager.
+	Link LinkMechanismManager
+
+	// Network layer mechanism manager.
+	Network NetworkMechanismManager
+
+	// Extention mechanism manager.
+	Extension *ExtensionMechanismManager
 }
 
 // Mechanism describes switch drivers
@@ -144,7 +131,7 @@ type MechanismManager interface {
 	Enable(*MechanismContext)
 
 	// EnableByName performs intialization of specified mechanism.
-	EnableByName(*MechanismContext) error
+	EnableByName(string, *MechanismContext) error
 
 	// Activate activates registered mechanisms.
 	Activate()

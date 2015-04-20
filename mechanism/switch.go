@@ -5,35 +5,13 @@ import (
 	"github.com/netrack/openflow"
 )
 
-// SwitchContext is a placeholder for mechanism driver context
-// and mechanism drivers for a single switch.
-type SwitchContext struct {
-	// Mechanism driver context.
-	*MechanismContext
-
-	// Link layer mechanism manager.
-	Links *LinkMechanismManager
-
-	// Network layer mechanism manager.
-	Networks *NetworkMechanismManager
-
-	// Extention mechanism manager.
-	Extensions *ExtensionMechanismManager
-}
-
-// SwichPort describes switch ports.
-type SwitchPort interface {
+// SwitchPort describes switch ports.
+type SwitchPort struct {
 	// Name returns name of the switch port.
-	Name() string
+	Name string
 
 	// Number returns number of the port in a switch.
-	Number() uint32
-
-	// Link returns link layer resources.
-	//Link() *LinkContext
-
-	// Network returns network layer resources.
-	//Network() *NetworkContext
+	Number uint32
 }
 
 // Switch describes instance of openflow device
@@ -61,15 +39,15 @@ type Switch interface {
 	ReleaseTable(int)
 
 	// PortList returns list of ports registered in a switch.
-	PortList() []SwitchPort
+	PortList() []*SwitchPort
 
 	// PortByName returns port instance by specified port name,
 	// an error will returned if port not found.
-	PortByName(string) (SwitchPort, error)
+	PortByName(string) (*SwitchPort, error)
 
 	// PortByNumber returns port instance by specified port number,
 	// an error will returned if port not found.
-	PortByNumber(uint32) (SwitchPort, error)
+	PortByNumber(uint32) (*SwitchPort, error)
 }
 
 // SwitchConstructor is a generic constructor for switches.

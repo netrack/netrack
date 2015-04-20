@@ -78,5 +78,5 @@ func ExtensionMechanisms() ExtensionMechanismMap {
 // ExtensionManager manages extension mechanisms.
 type ExtensionMechanismManager struct {
 	// Base mechanism manager.
-	MechanismManager
+	BaseMechanismManager
 }

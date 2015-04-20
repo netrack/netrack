@@ -7,6 +7,7 @@ import (
 
 	"github.com/netrack/netrack/controller"
 	_ "github.com/netrack/netrack/httprest/v1"
+	_ "github.com/netrack/netrack/netutil/drivers"
 	_ "github.com/netrack/netrack/netutil/ip.v4"
 	_ "github.com/netrack/netrack/netutil/ofp.v13"
 )

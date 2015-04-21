@@ -18,7 +18,7 @@ import (
 
 func init() {
 	constructor := mech.NetworkMechanismConstructorFunc(NewARPMechanism)
-	mech.RegisterNetworkMechanism("ARP", constructor)
+	mech.RegisterNetworkMechanism("ARP/RFC826", constructor)
 }
 
 type NeighEntry struct {
@@ -83,9 +83,9 @@ func (m *ARPMechanism) Enable(c *mech.MechanismContext) {
 	m.BaseMechanism.Enable(c)
 
 	// Handle incoming ARP requests.
-	m.C.Mux.HandleFunc(of.T_PACKET_IN, m.packetHandler)
+	m.C.Mux.HandleFunc(of.T_PACKET_IN, m.packetInHandler)
 
-	log.InfoLog("arp/ENABLE", "Mechanism ARP enabled")
+	log.InfoLog("arp/ENABLE_HOOK", "Mechanism ARP enabled")
 }
 
 // Activate implements Mechanism interface
@@ -214,29 +214,40 @@ func (m *ARPMechanism) UpdateNetwork(c *mech.NetworkContext) error {
 	return err
 }
 
-func (m *ARPMechanism) packetHandler(rw of.ResponseWriter, r *of.Request) {
+func (m *ARPMechanism) packetInHandler(rw of.ResponseWriter, r *of.Request) {
 	var packet ofp.PacketIn
 	var pdu2 mech.LinkFrame
 	var pdu3 l3.ARP
 
 	var err error
 
+	lldriver, err := m.C.Link.Driver()
+	if err != nil {
+		log.InfoLog("arp/PACKET_IN_HANDLER",
+			"Link layer driver is not intialized: ", err)
+		return
+	}
+
 	// Assume, that all packets are ARP protocol messages.
-	reader := mech.MakeLinkReaderFrom(m.C.Link, &pdu2)
+	reader := mech.MakeLinkReaderFrom(lldriver, &pdu2)
 	if _, err = of.ReadAllFrom(r.Body, &packet, reader, &pdu3); err != nil {
-		log.ErrorLog("arp/ARP_PACKET_IN_HANDLER",
+		log.ErrorLog("arp/PACKET_IN_HANDLER",
 			"Failed to read packet: ", err)
 		return
 	}
 
-	log.DebugLog("arp/ARP_PACKET_IN_HANDLER",
+	if int(packet.TableID) != m.tableNo {
+		return
+	}
+
+	log.DebugLog("arp/PACKET_IN_HANDLER",
 		"Got ARP request to resolve: ", pdu3.ProtoDst)
 
 	// Use that port as egress to send response.
 	portNo := packet.Match.Field(ofp.XMT_OFB_IN_PORT).Value.UInt32()
 
 	// Get link layer address associated with egress port.
-	laddr, err := m.C.Link.Addr(portNo)
+	lladdr, err := lldriver.Addr(portNo)
 	if err != nil {
 		log.ErrorLogf("arp/PACKET_IN_HANDLER",
 			"Failed to resolve port '%s' hardware address: '%s'", portNo, err)
@@ -244,11 +255,11 @@ func (m *ARPMechanism) packetHandler(rw of.ResponseWriter, r *of.Request) {
 	}
 
 	// Build link layer PDU.
-	pdu2 = &mech.BaseLinkFrame{pdu2.SrcAddr(), laddr, mech.Proto(iana.ETHT_ARP)}
+	pdu2 = mech.LinkFrame{pdu2.SrcAddr, lladdr, mech.Proto(iana.ETHT_ARP), 0}
 
 	// Build ARP response message.
 	pdu3 = l3.ARP{l3.ARPT_ETHERNET, iana.ETHT_IPV4, l3.ARPOT_REPLY,
-		net.HardwareAddr(laddr.Bytes()),
+		net.HardwareAddr(lladdr.Bytes()),
 		pdu3.ProtoDst,
 		pdu3.HWSrc,
 		pdu3.ProtoSrc,
@@ -259,8 +270,8 @@ func (m *ARPMechanism) packetHandler(rw of.ResponseWriter, r *of.Request) {
 		Actions: ofp.Actions{ofp.ActionOutput{ofp.P_IN_PORT, 0}},
 	}
 
-	writer := mech.MakeLinkWriterTo(m.C.Link, pdu2)
-	if _, err = of.WriteAllTo(rw, &packetOut, writer, &pdu3); err != nil {
+	llwriter := mech.MakeLinkWriterTo(lldriver, &pdu2)
+	if _, err = of.WriteAllTo(rw, &packetOut, llwriter, &pdu3); err != nil {
 		log.ErrorLog("arp/ARP_REQUEST_WRITE_ERR",
 			"Failed to write ARP response: ", err)
 

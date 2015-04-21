@@ -1,21 +1,17 @@
 package ip
 
 import (
-	//"net"
-
 	"github.com/netrack/net/iana"
-	//"github.com/netrack/net/l2"
-	//"github.com/netrack/net/l3"
+	"github.com/netrack/net/l3"
 	"github.com/netrack/netrack/logging"
 	"github.com/netrack/netrack/mechanism"
-	//"github.com/netrack/netrack/mechanism/rpc"
 	"github.com/netrack/openflow"
 	"github.com/netrack/openflow/ofp.v13"
 )
 
 func init() {
 	constructor := mech.NetworkMechanismConstructorFunc(NewICMPMechanism)
-	mech.RegisterNetworkMechanism("ICMPv4", constructor)
+	mech.RegisterNetworkMechanism("ICMP/RFC792", constructor)
 }
 
 type ICMPMechanism struct {
@@ -31,8 +27,10 @@ func NewICMPMechanism() mech.NetworkMechanism {
 func (m *ICMPMechanism) Enable(c *mech.MechanismContext) {
 	m.BaseNetworkMechanism.Enable(c)
 
-	log.InfoLog("icmp/ENABLE_HOOK",
-		"Mechanism ICMP enabled")
+	// Handle incoming ICMP requests.
+	m.C.Mux.HandleFunc(of.T_PACKET_IN, m.packetInHandler)
+
+	log.InfoLog("icmp/ENABLE_HOOK", "Mechanism ICMP enabled")
 }
 
 func (m *ICMPMechanism) Activate() {
@@ -109,61 +107,62 @@ func (m *ICMPMechanism) Activate() {
 }
 
 func (m *ICMPMechanism) UpdateNetwork(context *mech.NetworkContext) error {
-	//var ipaddr []byte
-	//var portNo uint16
+	lldriver, err := m.C.Link.Driver()
+	if err != nil {
+		log.ErrorLog("icmp/UPDATE_NETWORK",
+			"Network layer driver is not intialized: ", err)
+		return err
+	}
 
-	//if err := param.Obtain(&ipaddr, &portNo); err != nil {
-	//log.ErrorLog("icmp/ADD_ICMP_SERVER_PARAM_ERR",
-	//"Failed to obtain parameters: ", err)
-	//return err
-	//}
+	// Get link layer address associated with ingress port.
+	lladdr, err := lldriver.Addr(context.Port)
+	if err != nil {
+		log.ErrorLogf("icmp/UPDATE_NETWORK",
+			"Failed to resolve port '%s' hardware address: '%s'", context.Port, err)
+		return err
+	}
 
-	//var hwaddr []byte
-	//err := m.BaseNetworkMechanism.C.Func.Call(rpc.T_OFP_PORT_HWADDR,
-	//rpc.UInt16Param(portNo),
-	//rpc.ByteSliceResult(&hwaddr))
+	// Match ICMP echo-request messages to created network address.
+	match := ofp.Match{ofp.MT_OXM, []ofp.OXM{
+		ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_ETH_TYPE, of.Bytes(iana.ETHT_IPV4), nil},
+		ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_ETH_DST, lladdr.Bytes(), nil},
+		ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_IPV4_DST, context.Addr.Bytes(), nil},
+		ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_IP_PROTO, of.Bytes(iana.IP_PROTO_ICMP), nil},
+		ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_ICMPV4_TYPE, of.Bytes(l3.ICMPT_ECHO_REQUEST), nil},
+	}}
 
-	//if err != nil {
-	//log.ErrorLog("icmp/ADD_ICMP_SERVER_HWADDR_ERR",
-	//"Failed to return port hardware address: ", err)
-	//return err
-	//}
+	// Send ICMP message to the controller
+	instructions := ofp.Instructions{ofp.InstructionActions{
+		ofp.IT_APPLY_ACTIONS,
+		ofp.Actions{ofp.ActionOutput{ofp.P_CONTROLLER, ofp.CML_NO_BUFFER}},
+	}}
 
-	////TODO:
-	//ipaddr[3] = 254
+	// Insert flow into ICMP-allocated table.
+	req, err := of.NewRequest(of.T_FLOW_MOD, of.NewReader(&ofp.FlowMod{
+		Command:      ofp.FC_ADD,
+		TableID:      ofp.Table(m.tableNo),
+		BufferID:     ofp.NO_BUFFER,
+		Priority:     2, // Use non-zero priority
+		Match:        match,
+		Instructions: instructions,
+	}))
 
-	//match := ofp.Match{ofp.MT_OXM, []ofp.OXM{
-	//ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_ETH_TYPE, of.Bytes(iana.ETHT_IPV4), nil},
-	//ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_ETH_DST, hwaddr, nil},
-	//ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_IPV4_DST, ipaddr, nil},
-	//ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_IP_PROTO, of.Bytes(iana.IP_PROTO_ICMP), nil},
-	//ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_ICMPV4_TYPE, of.Bytes(l3.ICMPT_ECHO_REQUEST), nil},
-	//}}
+	if err != nil {
+		log.ErrorLog("icmp/UPDATE_NETWORK",
+			"Failed to create a new ofp_flow_mod request: ", err)
+	}
 
-	//instr := ofp.Instructions{ofp.InstructionActions{
-	//ofp.IT_APPLY_ACTIONS,
-	//ofp.Actions{ofp.ActionOutput{ofp.P_CONTROLLER, ofp.CML_NO_BUFFER}},
-	//}}
+	if err = m.C.Switch.Conn().Send(req); err != nil {
+		log.ErrorLogf("icmp/UPDATE_NETWORK",
+			"Failed to send ofp_flow_mod request:", err)
+	}
 
-	//req, err := of.NewRequest(of.T_FLOW_MOD, of.NewReader(&ofp.FlowMod{
-	//Command:      ofp.FC_ADD,
-	//BufferID:     ofp.NO_BUFFER,
-	//Match:        match,
-	//Instructions: instr,
-	//}))
+	if err = m.C.Switch.Conn().Flush(); err != nil {
+		log.ErrorLog("icmp/UPDATE_NETWORK",
+			"Failed to flush requests: ", err)
+	}
 
-	//if err != nil {
-	//log.ErrorLog("icmp/ADD_ICMP_SERVER_REQUEST_ERR",
-	//"Failed to create a new ofp_flow_mod request: ", err)
-	//}
-
-	//if err = m.BaseNetworkMechanism.C.Conn.Send(req); err != nil {
-	//log.ErrorLogf("icmp/ADD_ICMP_SERVER_SEND_ERR",
-	//"Failed to send ofp_flow_mod request:", err)
-	//}
-
-	//return err
-	return nil
+	return err
 }
 
 func (m *ICMPMechanism) DeleteNetwork(context *mech.NetworkContext) error {
@@ -171,56 +170,90 @@ func (m *ICMPMechanism) DeleteNetwork(context *mech.NetworkContext) error {
 }
 
 func (m *ICMPMechanism) packetInHandler(rw of.ResponseWriter, r *of.Request) {
-	//var p ofp.PacketIn
-	//p.ReadFrom(r.Body)
+	var packet ofp.PacketIn
+	var pdu2 mech.LinkFrame
+	var pdu3 mech.NetworkPacket
 
-	//var eth l2.EthernetII
-	//if eth.ReadFrom(r.Body); eth.EthType != iana.ETHT_IPV4 {
-	//return
-	//}
+	// TODO: differ ofp_packet_in messages by cookies.
+	lldriver, err := m.C.Link.Driver()
+	if err != nil {
+		log.InfoLog("icmp/PACKET_IN_HANDLER",
+			"Link layer driver is not initialized: ", err)
+		return
+	}
 
-	//var ip l3.IPv4
-	//if ip.ReadFrom(r.Body); ip.Proto != iana.IP_PROTO_ICMP {
-	//return
-	//}
+	nldriver, err := m.C.Network.Driver()
+	if err != nil {
+		log.InfoLog("icmp/PACKET_IN_HANDLER",
+			"Network layer driver is not intialized: ", err)
+		return
+	}
 
-	//icmp := l3.ICMPEcho{Data: make([]byte, ip.Len-l3.IPv4HeaderLen-l3.ICMPHeaderLen)}
-	//if icmp.ReadFrom(r.Body); icmp.Type != l3.ICMPT_ECHO_REQUEST {
-	//return
-	//}
+	llreader := mech.MakeLinkReaderFrom(lldriver, &pdu2)
+	nlreader := mech.MakeNetworkReaderFrom(nldriver, &pdu3)
 
-	//icmp.Type = l3.ICMPT_ECHO_REPLY
-	//payload := of.NewReader(&icmp)
+	if _, err = of.ReadAllFrom(r.Body, &packet, llreader, nlreader); err != nil {
+		log.ErrorLog("icmp/PACKET_IN_HANDLER",
+			"Failed to read packet: ", err)
+		return
+	}
 
-	//var hwaddr []byte
-	//portNo := p.Match.Field(ofp.XMT_OFB_IN_PORT).Value.UInt32()
+	if int(packet.TableID) != m.tableNo {
+		return
+	}
 
-	//err := m.BaseNetworkMechanism.C.Func.Call(rpc.T_OFP_PORT_HWADDR,
-	//rpc.UInt16Param(uint16(portNo)),
-	//rpc.ByteSliceResult(&hwaddr))
+	// Read icmp echo-request message
+	icmp := l3.ICMPEcho{Data: make([]byte, pdu3.ContentLen-l3.ICMPHeaderLen)}
+	if _, err = of.ReadAllFrom(r.Body, &icmp); err != nil {
+		log.ErrorLog("icmp/PACKET_IN_HANDLER",
+			"Failed to read ICMP message: ", err)
+		return
+	}
 
-	//if err != nil {
-	//log.ErrorLog("icmp/PACKET_IN_HWADDR_ERR",
-	//"Failed to retrieve port hardware address: ", err)
-	//return
-	//}
+	// Get port number from match fields.
+	portNo := packet.Match.Field(ofp.XMT_OFB_IN_PORT).Value.UInt32()
 
-	//eth = l2.EthernetII{eth.HWSrc, net.HardwareAddr(hwaddr), iana.ETHT_IPV4}
-	//ip = l3.IPv4{Src: ip.Dst, Dst: ip.Src, Proto: iana.IP_PROTO_ICMP, Payload: payload}
+	// Search for link layer address of egress port.
+	lladdr, err := lldriver.Addr(portNo)
+	if err != nil {
+		log.ErrorLog("icmp/PACKET_IN_HWADDR_ERR",
+			"Failed to retrieve port hardware address: ", err)
+		return
+	}
 
-	//pout := ofp.PacketOut{BufferID: ofp.NO_BUFFER,
-	//InPort:  ofp.P_CONTROLLER,
-	//Actions: ofp.Actions{ofp.ActionOutput{ofp.P_IN_PORT, 0}},
-	//}
+	// Build link layer PDU.
+	pdu2 = mech.LinkFrame{pdu2.SrcAddr, lladdr, mech.Proto(iana.ETHT_IPV4), 0}
 
-	//_, err = of.WriteAllTo(rw, &pout, &eth, &ip)
-	//if err != nil {
-	//log.ErrorLog("icmp/PACKET_IN_WRITE_ERR",
-	//"Failed to write response: ", err)
-	//return
-	//}
+	// Send echo-reply message.
+	icmp.Type = l3.ICMPT_ECHO_REPLY
 
-	//rw.Header().Set(of.TypeHeaderKey, of.T_PACKET_OUT)
-	//rw.Header().Set(of.VersionHeaderKey, ofp.VERSION)
-	//rw.WriteHeader()
+	// Build network layer PDU.
+	pdu3 = mech.NetworkPacket{
+		DstAddr: pdu3.SrcAddr,
+		SrcAddr: pdu3.DstAddr,
+		Proto:   pdu3.Proto,
+		Payload: of.NewReader(&icmp),
+	}
+
+	packetOut := ofp.PacketOut{BufferID: ofp.NO_BUFFER,
+		InPort:  packet.Match.Field(ofp.XMT_OFB_IN_PORT).Value.PortNo(),
+		Actions: ofp.Actions{ofp.ActionOutput{ofp.P_IN_PORT, 0}},
+	}
+
+	llwriter := mech.MakeLinkWriterTo(lldriver, &pdu2)
+	nlwriter := mech.MakeNetworkWriterTo(nldriver, &pdu3)
+
+	_, err = of.WriteAllTo(rw, &packetOut, llwriter, nlwriter)
+	if err != nil {
+		log.ErrorLog("icmp/PACKET_IN_HANDLER",
+			"Failed to write response: ", err)
+		return
+	}
+
+	rw.Header().Set(of.TypeHeaderKey, of.T_PACKET_OUT)
+	rw.Header().Set(of.VersionHeaderKey, ofp.VERSION)
+	if err = rw.WriteHeader(); err != nil {
+		log.ErrorLog("icmp/PACKET_IN_HANDLER",
+			"Failed to send ICMP-REPLY response: ", err)
+	}
 }

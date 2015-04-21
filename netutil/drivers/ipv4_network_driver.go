@@ -2,13 +2,16 @@ package drivers
 
 import (
 	"fmt"
+	"io"
 	"net"
 
+	"github.com/netrack/net/iana"
+	"github.com/netrack/net/l3"
 	"github.com/netrack/netrack/logging"
 	"github.com/netrack/netrack/mechanism"
 )
 
-const IPv4DriverName = "IPv4"
+const IPv4DriverName = "IPv4/RFC791"
 
 func init() {
 	constructor := mech.NetworkDriverConstructorFunc(NewIPv4Driver)
@@ -75,4 +78,35 @@ func (d *IPv4Driver) Addr(port uint32) (mech.NetworkAddr, error) {
 func (d *IPv4Driver) UpdateAddr(port uint32, addr mech.NetworkAddr) error {
 	d.addrs[port] = addr
 	return nil
+}
+
+func (d *IPv4Driver) ReadPacket(r io.Reader) (*mech.NetworkPacket, error) {
+	var ipv4 l3.IPv4
+
+	_, err := ipv4.ReadFrom(r)
+	if err != nil {
+		return nil, err
+	}
+
+	packet := &mech.NetworkPacket{
+		DstAddr:    &IPv4Addr{ipv4.Dst, nil},
+		SrcAddr:    &IPv4Addr{ipv4.Src, nil},
+		Proto:      mech.Proto(ipv4.Proto),
+		Len:        int64(l3.IPv4HeaderLen),
+		ContentLen: int64(ipv4.Len - l3.IPv4HeaderLen),
+	}
+
+	return packet, nil
+}
+
+func (d *IPv4Driver) WritePacket(w io.Writer, p *mech.NetworkPacket) error {
+	ipv4 := l3.IPv4{
+		Dst:     p.DstAddr.Bytes(),
+		Src:     p.SrcAddr.Bytes(),
+		Proto:   iana.IPProto(p.Proto),
+		Payload: p.Payload,
+	}
+
+	_, err := ipv4.WriteTo(w)
+	return err
 }

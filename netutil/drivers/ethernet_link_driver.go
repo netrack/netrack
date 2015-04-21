@@ -10,29 +10,11 @@ import (
 	"github.com/netrack/netrack/mechanism"
 )
 
+const EthernetDriverName = "ETHERNET-II/802.3"
+
 func init() {
 	constructor := mech.LinkDriverConstructorFunc(NewEthernetLinkDriver)
-	mech.RegisterLinkDriver("ethernet-link-driver", constructor)
-}
-
-type EthernetFrame struct {
-	frame l2.EthernetII
-}
-
-func (f *EthernetFrame) DstAddr() mech.LinkAddr {
-	return EthernetAddr(f.frame.HWDst)
-}
-
-func (f *EthernetFrame) SrcAddr() mech.LinkAddr {
-	return EthernetAddr(f.frame.HWSrc)
-}
-
-func (f *EthernetFrame) Proto() mech.Proto {
-	return mech.Proto(f.frame.EthType)
-}
-
-func (f *EthernetFrame) Len() int64 {
-	return int64(len(f.frame.HWSrc)+len(f.frame.HWDst)) + 2
+	mech.RegisterLinkDriver(EthernetDriverName, constructor)
 }
 
 // Hardware address
@@ -70,7 +52,7 @@ func (d *EthernetLinkDriver) Addr(portNo uint32) (mech.LinkAddr, error) {
 	return EthernetAddr(addr), nil
 }
 
-func (d *EthernetLinkDriver) ReadFrame(r io.Reader) (mech.LinkFrame, error) {
+func (d *EthernetLinkDriver) ReadFrame(r io.Reader) (*mech.LinkFrame, error) {
 	var eth l2.EthernetII
 
 	_, err := eth.ReadFrom(r)
@@ -78,11 +60,19 @@ func (d *EthernetLinkDriver) ReadFrame(r io.Reader) (mech.LinkFrame, error) {
 		return nil, err
 	}
 
-	return &EthernetFrame{eth}, nil
+	length := int64(len(eth.HWSrc)+len(eth.HWDst)) + 2
+	frame := &mech.LinkFrame{
+		DstAddr: EthernetAddr(eth.HWDst),
+		SrcAddr: EthernetAddr(eth.HWSrc),
+		Proto:   mech.Proto(eth.EthType),
+		Len:     length,
+	}
+
+	return frame, nil
 }
 
-func (d *EthernetLinkDriver) WriteFrame(w io.Writer, f mech.LinkFrame) error {
-	eth := l2.EthernetII{f.DstAddr().Bytes(), f.SrcAddr().Bytes(), iana.EthType(f.Proto())}
+func (d *EthernetLinkDriver) WriteFrame(w io.Writer, f *mech.LinkFrame) error {
+	eth := l2.EthernetII{f.DstAddr.Bytes(), f.SrcAddr.Bytes(), iana.EthType(f.Proto)}
 	_, err := eth.WriteTo(w)
 	return err
 }

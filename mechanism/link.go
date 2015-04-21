@@ -8,6 +8,13 @@ import (
 	"github.com/netrack/netrack/logging"
 )
 
+var (
+	// ErrNewtorkNotIntialized is returned on
+	// accessing not intialized link driver.
+	ErrLinkNotInitialized = errors.New(
+		"LinkManager: link driver not intialized")
+)
+
 const (
 	// Full-Duplex system, allows communication in both directions.
 	LinkModeFullDuplex LinkMode = "FULL-DUPLEX"
@@ -43,54 +50,26 @@ type LinkContext struct {
 }
 
 // LinkFrame describes OSI L2 PDU.
-type LinkFrame interface {
-	// DstAddr returns frame destination address.
-	DstAddr() LinkAddr
+type LinkFrame struct {
+	// DstAddr is a frame destination address.
+	DstAddr LinkAddr
 
-	// SrcAddr returns frame source address.
-	SrcAddr() LinkAddr
+	// SrcAddr is a frame source address.
+	SrcAddr LinkAddr
 
-	// Proto returns payload protocol type. Value of
+	// Proto is payload protocol type. Value of
 	// Proto depends on link layer encapsulation. In
 	// case of ethernet Proto returns IANA ethernet types.
-	Proto() Proto
+	Proto Proto
 
-	// Len returns header length.
-	Len() int64
+	// Len is a header length.
+	Len int64
 }
 
-// BaseLinkFrame implements LinkFrame interface.
-type BaseLinkFrame struct {
-	// Destination link layer address
-	Dst LinkAddr
-
-	// Source link layer address
-	Src LinkAddr
-
-	// Paayload protocol type.
-	Protocol Proto
-}
-
-func (f *BaseLinkFrame) DstAddr() LinkAddr {
-	return f.Dst
-}
-
-func (f *BaseLinkFrame) SrcAddr() LinkAddr {
-	return f.Src
-}
-
-func (f *BaseLinkFrame) Proto() Proto {
-	return f.Protocol
-}
-
-func (f *BaseLinkFrame) Len() int64 {
-	return 0
-}
-
-// LinkReaderFrom describes types, that can read link layer header.
+// LinkReaderFrom describes types, that can read link layer frames.
 type LinkFrameReader interface {
-	// ReadFrame read link layer header.
-	ReadFrame(io.Reader) (LinkFrame, error)
+	// ReadFrame reads link layer frames.
+	ReadFrame(io.Reader) (*LinkFrame, error)
 }
 
 // MakeLinkReaderFrom is a helper to transform LinkFrameReader type to io.ReaderFrom
@@ -101,22 +80,21 @@ func MakeLinkReaderFrom(rf LinkFrameReader, f *LinkFrame) io.ReaderFrom {
 			return 0, err
 		}
 
-		*f = frame
-		return frame.Len(), nil
+		*f = *frame
+		return frame.Len, nil
 	})
 }
 
 // LinkFramWriter describes types, that can write link layer header.
 type LinkFrameWriter interface {
 	// WriteFrame write link layer header.
-	WriteFrame(io.Writer, LinkFrame) error
+	WriteFrame(io.Writer, *LinkFrame) error
 }
 
 // MakeLinkWriterTo is a helper to transform LinkFrameWriter type to io.WriterTo
-func MakeLinkWriterTo(wf LinkFrameWriter, f LinkFrame) io.WriterTo {
+func MakeLinkWriterTo(wf LinkFrameWriter, f *LinkFrame) io.WriterTo {
 	return ioutil.WriterToFunc(func(w io.Writer) (int64, error) {
-		// FIXME: written more that 0 bytes
-		return 0, wf.WriteFrame(w, f)
+		return f.Len, wf.WriteFrame(w, f)
 	})
 }
 
@@ -129,10 +107,10 @@ type LinkDriver interface {
 	// Addr returns link layer address of specified port.
 	Addr(portNo uint32) (LinkAddr, error)
 
-	// Reads link layer headers.
+	// Reads link layer frames.
 	LinkFrameReader
 
-	// Writes link layer headers.
+	// Writes link layer frames.
 	LinkFrameWriter
 }
 
@@ -286,8 +264,8 @@ type LinkMechanismManager interface {
 	// Base mechanism manager.
 	MechanismManager
 
-	// Link driver interface.
-	LinkDriver
+	// LinkDriver returns active link layer driver.
+	Driver() (LinkDriver, error)
 
 	// UpdateLink forwards call to all registered mechanisms.
 	UpdateLink(*LinkContext) error
@@ -302,7 +280,7 @@ type BaseLinkMechanismManager struct {
 	BaseMechanismManager
 
 	// Link layer driver.
-	Driver LinkDriver
+	Drv LinkDriver
 }
 
 // Iter calls specified function for all registered link layer mechanisms.
@@ -340,24 +318,15 @@ func (m *BaseLinkMechanismManager) do(context *LinkContext, fn linkMechanismFunc
 	return
 }
 
-// Addr implements LinkMechanismManager interface.
-func (m *BaseLinkMechanismManager) Addr(portNo uint32) (LinkAddr, error) {
-	return m.Driver.Addr(portNo)
-}
+// Driver implements LinkMechanismManager interface.
+func (m *BaseLinkMechanismManager) Driver() (LinkDriver, error) {
+	if m.Drv == nil {
+		log.ErrorLog("link/LINK_DRIVER",
+			"Link layer driver is not initialized")
+		return nil, ErrLinkNotInitialized
+	}
 
-// ParseAddr implements LinkMechanismManager interface.
-func (m *BaseLinkMechanismManager) ParseAddr(s string) (LinkAddr, error) {
-	return m.Driver.ParseAddr(s)
-}
-
-// ReadFrame implements LinkMechanismManager interface.
-func (m *BaseLinkMechanismManager) ReadFrame(r io.Reader) (LinkFrame, error) {
-	return m.Driver.ReadFrame(r)
-}
-
-// WriteFrame implements LinkMechanismManager interface.
-func (m *BaseLinkMechanismManager) WriteFrame(w io.Writer, f LinkFrame) error {
-	return m.Driver.WriteFrame(w, f)
+	return m.Drv, nil
 }
 
 // UpdateLink calls corresponding method for activated mechanisms.

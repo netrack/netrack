@@ -2,8 +2,10 @@ package mech
 
 import (
 	"errors"
+	"io"
 	"sync"
 
+	"github.com/netrack/netrack/ioutil"
 	"github.com/netrack/netrack/logging"
 )
 
@@ -53,21 +55,57 @@ type NetworkContext struct {
 }
 
 // NetworkPacket describes OSI L3 PDU.
-type NetworkPacket interface {
-	// DstAddr returns packet destination address.
-	DstAddr() NetworkAddr
+type NetworkPacket struct {
+	// Packet destination address.
+	DstAddr NetworkAddr
 
-	// SrcAddr returns packet source address.
-	SrcAddr() NetworkAddr
+	// Packet source address.
+	SrcAddr NetworkAddr
 
-	// Proto returns payload protocol type.
-	Proto() Proto
+	// Payload protocol type.
+	Proto Proto
 
-	// Len returns length of the protocol header.
-	Len() int64
+	// Length of the protocol header.
+	Len int64
 
-	// ContentLen returns length of the payload.
-	ContentLen() int64
+	// Length of the payload.
+	ContentLen int64
+
+	// Payload data. This field should not be nil on write
+	// operations.
+	Payload io.Reader
+}
+
+// NetworkPacketReader describes types, that can read network layer packets.
+type NetworkPacketReader interface {
+	// ReadPacket reads network layer packets.
+	ReadPacket(io.Reader) (*NetworkPacket, error)
+}
+
+// MakeNetworkReaderFrom is a helper to transform NetworkPacketReader to io.ReaderFrom.
+func MakeNetworkReaderFrom(rp NetworkPacketReader, p *NetworkPacket) io.ReaderFrom {
+	return ioutil.ReaderFromFunc(func(r io.Reader) (int64, error) {
+		packet, err := rp.ReadPacket(r)
+		if err != nil {
+			return 0, err
+		}
+
+		*p = *packet
+		return packet.Len, nil
+	})
+}
+
+// NetworkPacketWriter describes types, taht can write network layer packets.
+type NetworkPacketWriter interface {
+	// WritePacket writers network layer packets.
+	WritePacket(io.Writer, *NetworkPacket) error
+}
+
+// MakeNetworkWriterTo is a helper to transform NetworkPacketWriter type to io.WriterTo.
+func MakeNetworkWriterTo(wp NetworkPacketWriter, p *NetworkPacket) io.WriterTo {
+	return ioutil.WriterToFunc(func(w io.Writer) (int64, error) {
+		return p.Len, wp.WritePacket(w, p)
+	})
 }
 
 // NetworkDriver describes types that handles
@@ -85,8 +123,11 @@ type NetworkDriver interface {
 	// UpdateAddr updates switch port network layer address.
 	UpdateAddr(uint32, NetworkAddr) error
 
-	// Decapsulate removes network layer header from the packet.
-	//Decapsulate(io.Reader) (NetworkPacket, error)
+	// Reads network layer packets.
+	NetworkPacketReader
+
+	// Writes network layer packets.
+	NetworkPacketWriter
 }
 
 // BaseNetworkDriver implements NetworkDriver interface.
@@ -98,7 +139,7 @@ func (d *BaseNetworkDriver) ParseAddr(string) (NetworkAddr, error) {
 }
 
 // Addr implements NetworkDriver interface.
-func (d *BaseNetworkDriver) Addr(laddr LinkAddr) (NetworkAddr, error) {
+func (d *BaseNetworkDriver) Addr(LinkAddr) (NetworkAddr, error) {
 	return nil, errors.New("BaseNetworkDriver: not implemented")
 }
 
@@ -250,6 +291,9 @@ type NetworkMechanismManager interface {
 	// Base mechanism manager interface.
 	MechanismManager
 
+	// NetworkDriver returns active network layer driver instance.
+	Driver() (NetworkDriver, error)
+
 	// Context returns port network context.
 	Context(uint32) (*NetworkManagerContext, error)
 
@@ -329,6 +373,20 @@ func (m *BaseNetworkMechanismManager) driver(name string) error {
 
 	m.drv = drv
 	return nil
+}
+
+// Driver returns active network layer driver.
+func (m *BaseNetworkMechanismManager) Driver() (NetworkDriver, error) {
+	m.lock.RLock()
+	defer m.lock.RUnlock()
+
+	if m.drv == nil {
+		log.ErrorLog("network/NETWORK_DRIVER",
+			"Network layer driver is not itialized")
+		return nil, ErrNetworkNotInitialized
+	}
+
+	return m.drv, nil
 }
 
 // Context returns network context of specified switch port.

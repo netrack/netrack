@@ -76,15 +76,10 @@ func (m *SwitchManager) CreateSwitch(conn of.OFPConn) error {
 		BaseMechanismManager{LinkMechanisms()}, ldrv,
 	}
 
-	// FIXME: should be configured through REST api.
-	var ndrv NetworkDriver
-	for _, driver := range networkDrivers {
-		ndrv = driver.New()
-		break
-	}
-
+	manager := BaseMechanismManager{NetworkMechanisms()}
 	networkManager := &BaseNetworkMechanismManager{
-		BaseMechanismManager{NetworkMechanisms()}, ndrv,
+		BaseMechanismManager: manager,
+		Drivers:              NetworkDrivers(),
 	}
 
 	extensionManager := &ExtensionMechanismManager{
@@ -132,18 +127,26 @@ func (m *SwitchManager) Context(dpid string) (*MechanismContext, error) {
 	m.lock.RLock()
 	defer m.lock.RUnlock()
 
-	context, ok := m.entries[dpid]
-	if !ok {
+	// Try to search switch by datapath identifier.
+	if context, ok := m.entries[dpid]; ok {
 		log.DebugLog("switch_manager/SWITCH_CONTEXT_BY_ID",
-			"Failed to find switch for: ", dpid)
+			"Found switch context by datapath ID: ", dpid)
+		return context, nil
+	}
 
-		return nil, ErrSwitchNotFound
+	// Try to find LOCAL_PORT match.
+	for _, context := range m.entries {
+		if context.Switch.Name() == dpid {
+			log.DebugLog("switch_manager/SWITCH_CONTEXT_BY_ID",
+				"Found switch context by switch name: ", dpid)
+			return context, nil
+		}
 	}
 
 	log.DebugLog("switch_manager/SWITCH_CONTEXT_BY_ID",
-		"Found switch context for: ", dpid)
+		"Failed to find switch: ", dpid)
 
-	return context, nil
+	return nil, ErrSwitchNotFound
 }
 
 func (m *SwitchManager) serve(c *MechanismContext) {

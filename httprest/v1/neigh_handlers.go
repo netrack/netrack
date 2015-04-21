@@ -28,9 +28,9 @@ func NewNeighHandler() mech.HTTPDriver {
 func (h *NeighHandler) Enable(c *mech.HTTPDriverContext) {
 	h.BaseHTTPDriver.Enable(c)
 
-	h.C.Mux.HandleFunc("PUT", "/v1/switches/{dpid}/ipv4/neigh", h.createHandler)
-	h.C.Mux.HandleFunc("GET", "/v1/switches/{dpid}/ipv4/neigh", h.indexHandler)
-	h.C.Mux.HandleFunc("DELETE", "/v1/switches/{dpid}/ipv4/neigh", h.destroyHandler)
+	h.C.Mux.HandleFunc("PUT", "/v1/datapaths/{dpid}/neigh", h.createHandler)
+	h.C.Mux.HandleFunc("GET", "/v1/datapaths/{dpid}/neigh", h.indexHandler)
+	h.C.Mux.HandleFunc("DELETE", "/v1/datapaths/{dpid}/neigh", h.destroyHandler)
 
 	log.InfoLog("neigh_handlers/ENABLE_HOOK",
 		"Neight management enabled")

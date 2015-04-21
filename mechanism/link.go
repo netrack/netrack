@@ -123,7 +123,7 @@ func MakeLinkWriterTo(wf LinkFrameWriter, f LinkFrame) io.WriterTo {
 // LinkDriver describes types that handles
 // link layer protocols.
 type LinkDriver interface {
-	// ParseAddr returns
+	// ParseAddr returns link layer address from string.
 	ParseAddr(s string) (LinkAddr, error)
 
 	// Addr returns link layer address of specified port.

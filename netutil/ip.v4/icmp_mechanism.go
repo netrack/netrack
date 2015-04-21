@@ -8,14 +8,14 @@ import (
 	//"github.com/netrack/net/l3"
 	"github.com/netrack/netrack/logging"
 	"github.com/netrack/netrack/mechanism"
-	"github.com/netrack/netrack/mechanism/rpc"
+	//"github.com/netrack/netrack/mechanism/rpc"
 	"github.com/netrack/openflow"
 	"github.com/netrack/openflow/ofp.v13"
 )
 
 func init() {
 	constructor := mech.NetworkMechanismConstructorFunc(NewICMPMechanism)
-	mech.RegisterNetworkMechanism("icmp-mechanism", constructor)
+	mech.RegisterNetworkMechanism("ICMPv4", constructor)
 }
 
 type ICMPMechanism struct {
@@ -73,14 +73,12 @@ func (m *ICMPMechanism) Activate() {
 	if err != nil {
 		log.ErrorLog("icmp/ACTIVATE_HOOK",
 			"Failed to create ofp_flow_mod request: ", err)
-
 		return
 	}
 
 	if err = m.C.Switch.Conn().Send(r); err != nil {
 		log.ErrorLog("icmp/ACTIVATE_HOOK",
 			"Failed to send request: ", err)
-
 		return
 	}
 
@@ -95,14 +93,12 @@ func (m *ICMPMechanism) Activate() {
 	if err != nil {
 		log.ErrorLog("icmp/ACTIVATE_HOOK",
 			"Failed to create ofp_flow_mod request: ", err)
-
 		return
 	}
 
 	if err = m.C.Switch.Conn().Send(r); err != nil {
 		log.ErrorLog("icmp/ACTIVATE_HOOK",
 			"Failed to send request: ", err)
-
 		return
 	}
 
@@ -113,6 +109,60 @@ func (m *ICMPMechanism) Activate() {
 }
 
 func (m *ICMPMechanism) UpdateNetwork(context *mech.NetworkContext) error {
+	//var ipaddr []byte
+	//var portNo uint16
+
+	//if err := param.Obtain(&ipaddr, &portNo); err != nil {
+	//log.ErrorLog("icmp/ADD_ICMP_SERVER_PARAM_ERR",
+	//"Failed to obtain parameters: ", err)
+	//return err
+	//}
+
+	//var hwaddr []byte
+	//err := m.BaseNetworkMechanism.C.Func.Call(rpc.T_OFP_PORT_HWADDR,
+	//rpc.UInt16Param(portNo),
+	//rpc.ByteSliceResult(&hwaddr))
+
+	//if err != nil {
+	//log.ErrorLog("icmp/ADD_ICMP_SERVER_HWADDR_ERR",
+	//"Failed to return port hardware address: ", err)
+	//return err
+	//}
+
+	////TODO:
+	//ipaddr[3] = 254
+
+	//match := ofp.Match{ofp.MT_OXM, []ofp.OXM{
+	//ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_ETH_TYPE, of.Bytes(iana.ETHT_IPV4), nil},
+	//ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_ETH_DST, hwaddr, nil},
+	//ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_IPV4_DST, ipaddr, nil},
+	//ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_IP_PROTO, of.Bytes(iana.IP_PROTO_ICMP), nil},
+	//ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_ICMPV4_TYPE, of.Bytes(l3.ICMPT_ECHO_REQUEST), nil},
+	//}}
+
+	//instr := ofp.Instructions{ofp.InstructionActions{
+	//ofp.IT_APPLY_ACTIONS,
+	//ofp.Actions{ofp.ActionOutput{ofp.P_CONTROLLER, ofp.CML_NO_BUFFER}},
+	//}}
+
+	//req, err := of.NewRequest(of.T_FLOW_MOD, of.NewReader(&ofp.FlowMod{
+	//Command:      ofp.FC_ADD,
+	//BufferID:     ofp.NO_BUFFER,
+	//Match:        match,
+	//Instructions: instr,
+	//}))
+
+	//if err != nil {
+	//log.ErrorLog("icmp/ADD_ICMP_SERVER_REQUEST_ERR",
+	//"Failed to create a new ofp_flow_mod request: ", err)
+	//}
+
+	//if err = m.BaseNetworkMechanism.C.Conn.Send(req); err != nil {
+	//log.ErrorLogf("icmp/ADD_ICMP_SERVER_SEND_ERR",
+	//"Failed to send ofp_flow_mod request:", err)
+	//}
+
+	//return err
 	return nil
 }
 
@@ -173,62 +223,4 @@ func (m *ICMPMechanism) packetInHandler(rw of.ResponseWriter, r *of.Request) {
 	//rw.Header().Set(of.TypeHeaderKey, of.T_PACKET_OUT)
 	//rw.Header().Set(of.VersionHeaderKey, ofp.VERSION)
 	//rw.WriteHeader()
-}
-
-func (m *ICMPMechanism) Add(param rpc.Param, result rpc.Result) error {
-	//var ipaddr []byte
-	//var portNo uint16
-
-	//if err := param.Obtain(&ipaddr, &portNo); err != nil {
-	//log.ErrorLog("icmp/ADD_ICMP_SERVER_PARAM_ERR",
-	//"Failed to obtain parameters: ", err)
-	//return err
-	//}
-
-	//var hwaddr []byte
-	//err := m.BaseNetworkMechanism.C.Func.Call(rpc.T_OFP_PORT_HWADDR,
-	//rpc.UInt16Param(portNo),
-	//rpc.ByteSliceResult(&hwaddr))
-
-	//if err != nil {
-	//log.ErrorLog("icmp/ADD_ICMP_SERVER_HWADDR_ERR",
-	//"Failed to return port hardware address: ", err)
-	//return err
-	//}
-
-	////TODO:
-	//ipaddr[3] = 254
-
-	//match := ofp.Match{ofp.MT_OXM, []ofp.OXM{
-	//ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_ETH_TYPE, of.Bytes(iana.ETHT_IPV4), nil},
-	//ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_ETH_DST, hwaddr, nil},
-	//ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_IPV4_DST, ipaddr, nil},
-	//ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_IP_PROTO, of.Bytes(iana.IP_PROTO_ICMP), nil},
-	//ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_ICMPV4_TYPE, of.Bytes(l3.ICMPT_ECHO_REQUEST), nil},
-	//}}
-
-	//instr := ofp.Instructions{ofp.InstructionActions{
-	//ofp.IT_APPLY_ACTIONS,
-	//ofp.Actions{ofp.ActionOutput{ofp.P_CONTROLLER, ofp.CML_NO_BUFFER}},
-	//}}
-
-	//req, err := of.NewRequest(of.T_FLOW_MOD, of.NewReader(&ofp.FlowMod{
-	//Command:      ofp.FC_ADD,
-	//BufferID:     ofp.NO_BUFFER,
-	//Match:        match,
-	//Instructions: instr,
-	//}))
-
-	//if err != nil {
-	//log.ErrorLog("icmp/ADD_ICMP_SERVER_REQUEST_ERR",
-	//"Failed to create a new ofp_flow_mod request: ", err)
-	//}
-
-	//if err = m.BaseNetworkMechanism.C.Conn.Send(req); err != nil {
-	//log.ErrorLogf("icmp/ADD_ICMP_SERVER_SEND_ERR",
-	//"Failed to send ofp_flow_mod request:", err)
-	//}
-
-	//return err
-	return nil
 }

@@ -1,6 +1,7 @@
 package ip
 
 import (
+	//"bytes"
 	"net"
 	"sync"
 	"time"
@@ -17,23 +18,49 @@ import (
 
 func init() {
 	constructor := mech.NetworkMechanismConstructorFunc(NewARPMechanism)
-	mech.RegisterNetworkMechanism("arp-mechanism", constructor)
+	mech.RegisterNetworkMechanism("ARP", constructor)
 }
 
 type NeighEntry struct {
-	IPAddr []byte
-	HWAddr []byte
-	Port   ofp.PortNo
-	Time   time.Time
+	NetworkAddr mech.NetworkAddr
+	LinkAddr    mech.LinkAddr
+	Port        uint32
+	Time        time.Time
 }
 
 type NeighTable struct {
-	neighs []NeighEntry
+	neighs map[string][]NeighEntry
 	lock   sync.RWMutex
 }
 
-func (t *NeighTable) Lookup(ipaddr []byte) ([]byte, error) {
-	return nil, nil
+func NewNeighTable() *NeighTable {
+	neighs := make(map[string][]NeighEntry)
+	return &NeighTable{neighs: neighs}
+}
+
+func (t *NeighTable) Populate(entry NeighEntry) error {
+	t.lock.RLock()
+
+	entries, ok := t.neighs[entry.NetworkAddr.String()]
+	if !ok {
+		defer t.lock.RUnlock()
+
+		entries = append(entries, entry)
+		t.neighs[entry.NetworkAddr.String()] = entries
+
+		return nil
+	}
+
+	// Start search of matching entry
+	//for _, e := range entries {
+	//	netwEq := bytes.Equal(e.NetworkAddr.Bytes(), entry.NetworkAddr.Bytes())
+	//	linkEq := bytes.Equal(e.LinkAddr.Bytes(), entry.LinkAddr.Bytes())
+	//	portEq := e.Port == entry.Port
+
+	//	//
+	//}
+
+	return nil
 }
 
 // ARPMechanism handles ARP requests to the networks,
@@ -41,14 +68,14 @@ func (t *NeighTable) Lookup(ipaddr []byte) ([]byte, error) {
 type ARPMechanism struct {
 	mech.BaseNetworkMechanism
 
-	T NeighTable
+	T *NeighTable
 
 	// Table number allocated for the mechanism.
 	tableNo int
 }
 
 func NewARPMechanism() mech.NetworkMechanism {
-	return &ARPMechanism{}
+	return &ARPMechanism{T: NewNeighTable()}
 }
 
 // Enable implements Mechanism interface

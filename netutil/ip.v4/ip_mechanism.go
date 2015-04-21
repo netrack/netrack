@@ -16,7 +16,7 @@ const TableIPv4 ofp.Table = 4
 
 func init() {
 	constructor := mech.NetworkMechanismConstructorFunc(NewIPMechanism)
-	mech.RegisterNetworkMechanism("ipv4-mechanism", constructor)
+	mech.RegisterNetworkMechanism("IPv4", constructor)
 }
 
 type IPMechanism struct {

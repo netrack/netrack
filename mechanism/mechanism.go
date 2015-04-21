@@ -12,22 +12,22 @@ var (
 	// ErrMechanismNotRegistered is returned on
 	// not registered mechanism operations.
 	ErrMechanismNotRegistered = errors.New(
-		"BaseMechanismManager: mechanism not registered")
+		"MechanismManager: mechanism not registered")
 
 	// ErrMechanismAlreadyEnabled is returned on enabling
 	// of already enabled mechanism.
 	ErrMechanismAlreadyEnabled = errors.New(
-		"BaseMechanismManager: mechanism already enabled")
+		"MechanismManager: mechanism already enabled")
 
 	// ErrMechanismAlreadyActivated is returned on
 	// activating of already activated mechanism.
 	ErrMechanismAlreadyActivated = errors.New(
-		"BaseMechanismManager: mechanism already activated")
+		"MechanismManager: mechanism already activated")
 
 	// ErrMechanismAlreadyDisabled is returned on
 	// disabling of already disabled mechanism.
 	ErrMechanismAlreadyDisabled = errors.New(
-		"BaseMechanismManager: mechanism already disabled")
+		"MechanismManager: mechanism already disabled")
 )
 
 // Proto is protocol string alias

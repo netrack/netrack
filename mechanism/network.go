@@ -2,8 +2,21 @@ package mech
 
 import (
 	"errors"
+	"sync"
 
 	"github.com/netrack/netrack/logging"
+)
+
+var (
+	// ErrNetworkNotRegistered is returned on
+	// not registered driver operations.
+	ErrNetworkNotRegistered = errors.New(
+		"NetworkManager: network driver not registered")
+
+	// ErrNewtorkNotIntialized is returned on
+	// accessing not intialized network driver.
+	ErrNetworkNotInitialized = errors.New(
+		"NetworkManager: network driver not intialized")
 )
 
 // NetworkAddr represents a L3 address.
@@ -18,11 +31,25 @@ type NetworkAddr interface {
 	Mask() []byte
 }
 
+type NetworkManagerContext struct {
+	// Network layer address string.
+	Addr string
+
+	// Network driver name.
+	Driver string
+
+	// Switch port number.
+	Port uint32
+}
+
 // NetworkContext wraps network resources and provides
 // methods for accessing other network intformation.
 type NetworkContext struct {
 	// Network layer address.
 	Addr NetworkAddr
+
+	// Switch port number.
+	Port uint32
 }
 
 // NetworkPacket describes OSI L3 PDU.
@@ -46,11 +73,17 @@ type NetworkPacket interface {
 // NetworkDriver describes types that handles
 // network layer protocol.
 type NetworkDriver interface {
-	// ParseAddr returns NetworkAddr from string.
+	// Name returns driver name.
+	Name() string
+
+	// ParseAddr returns network layer address from string.
 	ParseAddr(string) (NetworkAddr, error)
 
-	// Addr returns network layer address of specified link layer address.
-	//Addr(laddr LinkAddr) (NetworkAddr, error)
+	// Addr returns network layer address of specified switch port.
+	Addr(uint32) (NetworkAddr, error)
+
+	// UpdateAddr updates switch port network layer address.
+	UpdateAddr(uint32, NetworkAddr) error
 
 	// Decapsulate removes network layer header from the packet.
 	//Decapsulate(io.Reader) (NetworkPacket, error)
@@ -144,6 +177,17 @@ func RegisterNetworkMechanism(name string, constructor NetworkMechanismConstruct
 	networks[name] = constructor
 }
 
+// NetworkMechanisms returns map of registered network layer mechanisms
+func NetworkMechanisms() NetworkMechanismMap {
+	nmap := make(NetworkMechanismMap)
+
+	for name, constructor := range networks {
+		nmap.Set(name, constructor.New())
+	}
+
+	return nmap
+}
+
 var networkDrivers = make(map[string]NetworkDriverConstructor)
 
 // RegisterNetworkDriver registers a new network layer driver
@@ -162,12 +206,12 @@ func RegisterNetworkDriver(name string, constructor NetworkDriverConstructor) {
 	networkDrivers[name] = constructor
 }
 
-// NetworkMechanisms returns map of registered network layer mechanisms
-func NetworkMechanisms() NetworkMechanismMap {
-	nmap := make(NetworkMechanismMap)
+// NetworkDriver returns map of registered network layer drivers instances.
+func NetworkDrivers() map[string]NetworkDriver {
+	nmap := make(map[string]NetworkDriver)
 
-	for name, constructor := range networks {
-		nmap.Set(name, constructor.New())
+	for name, constructor := range networkDrivers {
+		nmap[name] = constructor.New()
 	}
 
 	return nmap
@@ -206,14 +250,14 @@ type NetworkMechanismManager interface {
 	// Base mechanism manager interface.
 	MechanismManager
 
-	// Network driver interface.
-	NetworkDriver
+	// Context returns port network context.
+	Context(uint32) (*NetworkManagerContext, error)
 
 	// UpdateNetwork forwards call to all registered mechanisms.
-	UpdateNetwork(*NetworkContext) error
+	UpdateNetwork(*NetworkManagerContext) error
 
 	// DeleteNetwork forwards call to all registered mechanisms.
-	DeleteNetwork(*NetworkContext) error
+	DeleteNetwork(*NetworkManagerContext) error
 }
 
 // BaseNetworkMechanismManager implements NetworkMechanismManager interface.
@@ -221,13 +265,14 @@ type BaseNetworkMechanismManager struct {
 	// Base mechanism manager instance.
 	BaseMechanismManager
 
-	// Network layer driver.
-	Driver NetworkDriver
-}
+	// List of available network drivers.
+	Drivers map[string]NetworkDriver
 
-// ParseAddr parses string as network layer address.
-func (m *BaseNetworkMechanismManager) ParseAddr(s string) (NetworkAddr, error) {
-	return m.Driver.ParseAddr(s)
+	// Activated network layer driver.
+	drv NetworkDriver
+
+	// lock for drv member.
+	lock sync.RWMutex
 }
 
 // Iter calls specified function for all registered link layer mechanisms.
@@ -246,7 +291,7 @@ func (m *BaseNetworkMechanismManager) Iter(fn func(NetworkMechanism) bool) {
 
 type networkMechanismFunc func(NetworkMechanism, *NetworkContext) error
 
-func (m *BaseNetworkMechanismManager) do(context *NetworkContext, fn networkMechanismFunc) (err error) {
+func (m *BaseNetworkMechanismManager) do(fn networkMechanismFunc, context *NetworkContext) (err error) {
 	m.Iter(func(mechanism NetworkMechanism) bool {
 		// Forward request only to activated mechanisms.
 		if !mechanism.Activated() {
@@ -265,12 +310,95 @@ func (m *BaseNetworkMechanismManager) do(context *NetworkContext, fn networkMech
 	return
 }
 
+func (m *BaseNetworkMechanismManager) driver(name string) error {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+
+	// If driver already activated.
+	if m.drv != nil && m.drv.Name() == name {
+		return nil
+	}
+
+	// Search for a new driver.
+	drv, ok := m.Drivers[name]
+	if !ok {
+		log.ErrorLog("network/NETWORK_DRIVER",
+			"Requested network driver not found: ", name)
+		return ErrNetworkNotRegistered
+	}
+
+	m.drv = drv
+	return nil
+}
+
+// Context returns network context of specified switch port.
+func (m *BaseNetworkMechanismManager) Context(port uint32) (*NetworkManagerContext, error) {
+	m.lock.RLock()
+	defer m.lock.RUnlock()
+
+	if m.drv == nil {
+		log.ErrorLog("network/CONTEXT",
+			"Network layer driver is not initialized")
+		return &NetworkManagerContext{}, ErrNetworkNotInitialized
+	}
+
+	networkAddr, err := m.drv.Addr(port)
+	if err != nil {
+		log.ErrorLog("network/CONTEXT",
+			"Failed to find port network layer address: ", err)
+		return &NetworkManagerContext{}, err
+	}
+
+	context := &NetworkManagerContext{
+		Driver: m.drv.Name(),
+		Addr:   networkAddr.String(),
+		Port:   port,
+	}
+
+	return context, nil
+}
+
 // UpdateNetwork calls corresponding method for activated mechanisms.
-func (m *BaseNetworkMechanismManager) UpdateNetwork(context *NetworkContext) error {
-	return m.do(context, NetworkMechanism.UpdateNetwork)
+func (m *BaseNetworkMechanismManager) UpdateNetwork(context *NetworkManagerContext) error {
+	if err := m.driver(context.Driver); err != nil {
+		return err
+	}
+
+	m.lock.RLock()
+	defer m.lock.RUnlock()
+
+	networkAddr, err := m.drv.ParseAddr(context.Addr)
+	if err != nil {
+		log.ErrorLog("network/UPDATE_NETWORK",
+			"Failed to parse network layer address: ", err)
+		return err
+	}
+
+	if err = m.drv.UpdateAddr(context.Port, networkAddr); err != nil {
+		log.ErrorLog("network/UPDATE_NETWORK",
+			"Failed to update port network layer address: ", err)
+		return err
+	}
+
+	return m.do(NetworkMechanism.UpdateNetwork, &NetworkContext{
+		Addr: networkAddr,
+		Port: context.Port,
+	})
 }
 
 // DeleteNetwork calls corresponding method for activated mechanisms.
-func (m *BaseNetworkMechanismManager) DeleteNetwork(context *NetworkContext) error {
-	return m.do(context, NetworkMechanism.DeleteNetwork)
+func (m *BaseNetworkMechanismManager) DeleteNetwork(context *NetworkManagerContext) error {
+	if err := m.driver(context.Driver); err != nil {
+		return err
+	}
+
+	networkAddr, err := m.drv.ParseAddr(context.Addr)
+	if err != nil {
+		return err
+	}
+
+	return m.do(NetworkMechanism.DeleteNetwork, &NetworkContext{
+		Addr: networkAddr,
+		Port: context.Port,
+	})
 }

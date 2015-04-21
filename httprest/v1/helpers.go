@@ -13,7 +13,16 @@ func Format(r *http.Request) (format.ReadFormatter, format.WriteFormatter) {
 }
 
 func ReadFormat(r *http.Request) format.ReadFormatter {
-	f, err := format.Format(r.Header.Get(httputil.HeaderAccept))
+	header := r.Header.Get(httputil.HeaderContentType)
+
+	// If header is not provided, but this function called
+	// (Content-Type filter pass this request), that means,
+	// request was sent without body, so return nil formatter.
+	if header == "" {
+		return nil
+	}
+
+	f, err := format.Format(header)
 	if err != nil {
 		log.FatalLog("helpers/READ_FORMAT",
 			"Failed to select read formatter for request: ", err)
@@ -23,7 +32,7 @@ func ReadFormat(r *http.Request) format.ReadFormatter {
 }
 
 func WriteFormat(r *http.Request) format.WriteFormatter {
-	f, err := format.Format(r.Header.Get(httputil.HeaderContentType))
+	f, err := format.Format(r.Header.Get(httputil.HeaderAccept))
 	if err != nil {
 		log.FatalLog("helpers/WRITE_FORMAT",
 			"Failed to select write formatter for request: ", err)

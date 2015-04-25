@@ -5,16 +5,15 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/netrack/netrack/config"
 	"github.com/netrack/netrack/controller"
-	_ "github.com/netrack/netrack/httprest/v1"
-	_ "github.com/netrack/netrack/netutil/drivers"
-	_ "github.com/netrack/netrack/netutil/ip.v4"
-	_ "github.com/netrack/netrack/netutil/ofp.v13"
+	"github.com/netrack/netrack/logging"
 )
 
 var (
 	version string
 
+	flConfig  = flag.String("config", "", "Specify configuration file")
 	flVersion = flag.Bool("version", false, "Print version information and quit")
 	flHelp    = flag.Bool("help", false, "Pring usage")
 )
@@ -32,8 +31,7 @@ func main() {
 		return
 	}
 
-	c := controller.C{Addr: "192.168.0.100:6633"}
-	c.ListenAndServe()
+	doStart()
 }
 
 func flDoHelp() {
@@ -48,4 +46,15 @@ func flDoHelp() {
 
 func flDoVersion() {
 	fmt.Fprintf(os.Stdout, "%s\n", version)
+}
+
+func doStart() {
+	config, err := config.LoadFile(*flConfig)
+	if err != nil {
+		log.FatalLog("netrack/DO_START",
+			"Failed to load configuration file: ", err)
+	}
+
+	c := controller.C{Config: config}
+	c.ListenAndServe()
 }

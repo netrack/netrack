@@ -2,7 +2,9 @@ package controller
 
 import (
 	"net/http"
+	"net/url"
 
+	"github.com/netrack/netrack/config"
 	"github.com/netrack/netrack/httputil"
 	"github.com/netrack/netrack/logging"
 	"github.com/netrack/netrack/mechanism"
@@ -11,7 +13,8 @@ import (
 
 // C represents OpenFlow controller.
 type C struct {
-	Addr string
+	// Controller configuration.
+	Config *config.Config
 
 	// switchManager manages switch connections.
 	switchManager mech.SwitchManager
@@ -26,9 +29,18 @@ func (c *C) ListenAndServe() {
 }
 
 func (c *C) initializeSwitches() {
-	l, err := of.Listen("tcp", c.Addr)
+	u, err := url.Parse(c.Config.OFPEndpoint)
 	if err != nil {
-		log.ErrorLog("controller/LISTEN_AND_SERVE_OFP_ERR",
+		log.FatalLog("controller/PARSE_OFP_ADDRESS_ERR",
+			"Failed to parse openflow_endpoint parameter: ", err)
+	}
+
+	log.DebugLogf("controller/INITIALIZE_SWITCHES",
+		"Starting serving OFP at: %s://%s", u.Scheme, u.Host)
+
+	l, err := of.Listen(u.Scheme, u.Host)
+	if err != nil {
+		log.FatalLog("controller/LISTEN_AND_SERVE_OFP_ERR",
 			"Failed to serve OFP: ", err)
 		return
 	}
@@ -51,21 +63,27 @@ func (c *C) initializeSwitches() {
 }
 
 func (c *C) initializeHTTPDrivers() {
+	u, err := url.Parse(c.Config.APIEndpoint)
+	if err != nil {
+		log.FatalLog("constrollers/PARSE_HTTP_ADDRESS_ERR",
+			"Failed to parse api_endpoint parameter: ", err)
+	}
+
 	context := &mech.HTTPDriverContext{
 		Mux:           httputil.NewServeMux(),
 		SwitchManager: &c.switchManager,
 	}
 
-	// activate registered HTTP drivers.
+	// Activate registered HTTP drivers.
 	c.httpManager.Enable(context)
 
-	//FIXME: make address configurable
-	s := &http.Server{Addr: ":8080", Handler: context.Mux}
+	// Create HTTP Server.
+	s := &http.Server{Addr: u.Host, Handler: context.Mux}
 
 	// Start serving.
 	go func() {
 		if err := s.ListenAndServe(); err != nil {
-			log.ErrorLog("controller/LISTEN_AND_SERVE_HTTP_ERR",
+			log.FatalLog("controller/LISTEN_AND_SERVE_HTTP_ERR",
 				"Failed to serve HTTP: ", err)
 		}
 	}()

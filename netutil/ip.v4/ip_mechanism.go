@@ -125,8 +125,62 @@ func (m *IPMechanism) Disable() {
 }
 
 func (m *IPMechanism) UpdateNetwork(context *mech.NetworkContext) error {
+	lldriver, err := m.C.Link.Driver()
+	if err != nil {
+		log.ErrorLog("ip/UPDATE_NETWORK",
+			"Network layer driver is not intialized: ", err)
+		return err
+	}
 
-	return nil
+	// Get link layer address associated with ingress port.
+	lladdr, err := lldriver.Addr(context.Port)
+	if err != nil {
+		log.ErrorLogf("ip/UPDATE_NETWORK",
+			"Failed to resolve port '%s' hardware address: '%s'", context.Port, err)
+		return err
+	}
+
+	// Match IPv4 packets of specified subnetwork.
+	match := ofp.Match{ofp.MT_OXM, []ofp.OXM{
+		ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_ETH_TYPE, of.Bytes(iana.ETHT_IPV4), nil},
+		ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_ETH_DST, lladdr.Bytes(), nil},
+		ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_IPV4_DST, context.Addr.Bytes(), context.Addr.Mask()},
+	}}
+
+	// Send all such packets to controller.
+	instruction := ofp.Instructions{ofp.InstructionActions{
+		ofp.IT_APPLY_ACTIONS, ofp.Actions{
+			ofp.ActionOutput{ofp.P_CONTROLLER, ofp.CML_NO_BUFFER},
+		},
+	}}
+
+	r, err := of.NewRequest(of.T_FLOW_MOD, of.NewReader(&ofp.FlowMod{
+		TableID:      ofp.Table(m.tableNo),
+		Priority:     1,
+		Command:      ofp.FC_ADD,
+		BufferID:     1,
+		Match:        match,
+		Instructions: instruction,
+	}))
+
+	if err != nil {
+		log.ErrorLog("ip/UPDATE_NETWORK",
+			"Failed to create new ofp_flow_mod request: ", err)
+		return err
+	}
+
+	if err = m.C.Switch.Conn().Send(r); err != nil {
+		log.ErrorLog("ip/UPDATE_NETWORK",
+			"Failed to send ofp_flow_mode request: ", err)
+		return err
+	}
+
+	if err = m.C.Switch.Conn().Flush(); err != nil {
+		log.ErrorLog("ip/UPDATE_NETWORK",
+			"Failed to flush requests: ", err)
+	}
+
+	return err
 }
 
 func (m *IPMechanism) DeleteNetwork(context *mech.NetworkContext) error {

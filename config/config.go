@@ -12,6 +12,10 @@ import (
 type Config struct {
 	ID string `toml:"instance_id"`
 
+	OFPEndpoint string `toml:"openflow_endpoint"`
+
+	APIEndpoint string `toml:"api_endpoint"`
+
 	Database map[string]DatabaseConfig `toml:"database"`
 }
 

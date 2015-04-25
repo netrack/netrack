@@ -5,6 +5,7 @@ import (
 	"io"
 	"sync"
 
+	_ "github.com/netrack/netrack/database"
 	"github.com/netrack/netrack/ioutil"
 	"github.com/netrack/netrack/logging"
 )
@@ -441,10 +442,24 @@ func (m *BaseNetworkMechanismManager) UpdateNetwork(context *NetworkManagerConte
 		return err
 	}
 
-	return m.do(NetworkMechanism.UpdateNetwork, &NetworkContext{
+	err = m.do(NetworkMechanism.UpdateNetwork, &NetworkContext{
 		Addr: networkAddr,
 		Port: context.Port,
 	})
+
+	if err != nil {
+		log.ErrorLog("network/UPDATE_NETWORK",
+			"Failed to update network configuration: ", err)
+		return err
+	}
+
+	// Update database
+	// if err = db.Update(db.NetworkModel, context.Datapath, context); err != nil {
+	// 	log.ErrorLog("network/UPDATE_NETWORK",
+	// 		"Failed to update network database representation: ", err)
+	// }
+
+	return err
 }
 
 // DeleteNetwork calls corresponding method for activated mechanisms.
@@ -458,8 +473,16 @@ func (m *BaseNetworkMechanismManager) DeleteNetwork(context *NetworkManagerConte
 		return err
 	}
 
-	return m.do(NetworkMechanism.DeleteNetwork, &NetworkContext{
+	err = m.do(NetworkMechanism.DeleteNetwork, &NetworkContext{
 		Addr: networkAddr,
 		Port: context.Port,
 	})
+
+	// Delete network from the database.
+	// if err = db.Delete(db.NetworkModel, context.Datapath); err != nil {
+	// 	log.ErrorLog("network/DELETE_NETWORK",
+	// 		"Failed to delete network database representation: ", err)
+	// }
+
+	return err
 }

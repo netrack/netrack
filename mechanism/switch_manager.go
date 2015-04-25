@@ -65,15 +65,15 @@ func (m *SwitchManager) CreateSwitch(conn of.OFPConn) error {
 		"Switch successfully booted for ", r.Proto)
 
 	// FIXME: should be configured through REST api.
-	var ldrv LinkDriver
+	var lldrv LinkDriver
 	for _, driver := range linkDrivers {
-		ldrv = driver.New()
+		lldrv = driver.New()
 		break
 	}
 
 	// Create mechanism managers
 	linkManager := &BaseLinkMechanismManager{
-		BaseMechanismManager{LinkMechanisms()}, ldrv,
+		BaseMechanismManager{LinkMechanisms()}, lldrv,
 	}
 
 	manager := BaseMechanismManager{NetworkMechanisms()}

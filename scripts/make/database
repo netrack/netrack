@@ -1,0 +1,28 @@
+#!/bin/bash
+set -e
+
+dbenviron() {
+    case $1 in
+        dev)
+            echo development
+            ;;
+        test)
+            echo test
+            ;;
+        *)
+            echo production
+            ;;
+    esac
+}
+
+ENVIRONMENTS=( 'dev' 'test' '' )
+
+for environ in "${ENVIRONMENTS[@]}"; do
+    DBNAME="netrack${environ:+-}${environ}"
+
+    $(cd /tmp && sudo -u postgres dropdb --if-exists ${DBNAME} 2>/dev/null)
+    $(cd /tmp && sudo -u postgres createdb ${DBNAME})
+
+    sql-migrate up --config=config/dbconfig.yml -env=$(dbenviron ${environ})
+    echo "=== INFO: Database ${DBNAME} created"
+done

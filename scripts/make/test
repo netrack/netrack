@@ -1,0 +1,17 @@
+#!/bin/bash
+set -e
+
+#echo $PWD
+
+# Go throught project hierarchy and run tests where they are found.
+for package in $(find . -type d); do
+    TESTS=$(ls -l ${package}/*_test.go 2>/dev/null | xargs)
+
+    if [ -z "${TESTS}" ]; then
+        echo "=== WARN: Skipping ${package}"
+        continue
+    fi
+
+    echo "=== INFO: Testing package ${package}"
+    go test -v -race -tags="test" "${package}"
+done

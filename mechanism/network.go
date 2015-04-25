@@ -34,14 +34,17 @@ type NetworkAddr interface {
 }
 
 type NetworkManagerContext struct {
+	// Datapath identifier.
+	Datapath string `json:"id"`
+
 	// Network layer address string.
-	Addr string
+	Addr string `json:"address"`
 
 	// Network driver name.
-	Driver string
+	Driver string `json:"driver"`
 
 	// Switch port number.
-	Port uint32
+	Port uint32 `json:"port"`
 }
 
 // NetworkContext wraps network resources and provides

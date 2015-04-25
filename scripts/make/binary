@@ -1,14 +1,16 @@
-#!/usr/bin/env bash
+#!/bin/bash
 set -e
 
 DEST=$1
 BINARY_NAME="netrack"
+BINARY_VERSION="${VERSION}~git@${REVISION}"
 
 # Build binary with embedded version string
-GOFLAGS="-X main.version ${VERSION}-${REVISION}"
+GOFLAGS="-X main.version ${BINARY_VERSION}"
 GOTAGS=
 
 # Build executable
+echo "=== INFO: Compiling ${BINARY_VERSION}"
 go build -o "${DEST}/${BINARY_NAME}" -tags="${GOTAGS}" -ldflags="${GOFLAGS}"
 
 echo "=== INFO: Created binary at ${DEST}/${BINARY_NAME}"

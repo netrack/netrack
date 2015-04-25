@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/bin/bash
 set -e
 
 NETRACK_PKG='github.com/netrack/netrack'
@@ -7,11 +7,11 @@ if [ "$(pwd)" != "/go/src/${NETRACK_PKG}" ]; then
     echo "### WARN: I don't seem to be running in the Docker container"
 fi
 
+# Default list of bundles
 BUNDLES=( binary test )
 
 if [ ${#@} -ne 0 ]; then
-    echo $@
-    BUNDLES=$@
+    BUNDLES=( $@ )
 fi
 
 SCRIPTS="$(cd "$(dirname ${BASH_SOURCE[0]})" && pwd)"

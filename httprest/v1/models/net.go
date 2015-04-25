@@ -2,6 +2,8 @@ package models
 
 // Link is a JSON representation of link layer configuration.
 type Link struct {
+	LineProtocol string `json:"line_protocol"` //DOWN, UP
+
 	// Link layer encapsulation protocol (HDLC, PPP, Ethernet)
 	Encapsulation nullString `json:"encapsulation"`
 

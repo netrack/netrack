@@ -1,10 +1,12 @@
-#!/usr/bin/env bash
+#!/bin/bash
 set -e
 
-# Extract revision from git tags
-REVISION=$(git --no-pager log --no-color -1 --pretty=oneline | cut -c1-5)
+DEFAULT_VERSION='0.0.1'
+GIT_TAGS=$(git for-each-ref --format='%(*committerdate:raw)%(committerdate:raw) %(refname)' refs/tags)
+LIST_VERSIONS=( $( echo "${GIT_TAGS}" | sort -nr | awk '{print $3}' | sed -e 's/refs\/tags\///g') )
 
-# Fetch "dirty" flag
-DIRTY=$(git describe --dirty --tags --always 2>/dev/null | perl -ne 'print /(-dirty)/g')
-
-echo "${REVISION}${DIRTY}"
+if [ ${#LIST_VERSIONS[@]} -eq 0 ]; then
+    echo "${DEFAULT_VERSION}"
+else
+    echo "${LIST_VERSIONS}" | sed -e 's/^v//g'
+fi

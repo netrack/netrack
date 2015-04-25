@@ -19,7 +19,7 @@ var (
 	flHelp    = flag.Bool("help", false, "Pring usage")
 )
 
-func Main() {
+func main() {
 	flag.Parse()
 
 	if *flVersion {
@@ -31,6 +31,9 @@ func Main() {
 		flDoHelp()
 		return
 	}
+
+	c := controller.C{Addr: "192.168.0.100:6633"}
+	c.ListenAndServe()
 }
 
 func flDoHelp() {
@@ -45,9 +48,4 @@ func flDoHelp() {
 
 func flDoVersion() {
 	fmt.Fprintf(os.Stdout, "%s\n", version)
-}
-
-func main() {
-	c := controller.C{Addr: "192.168.0.100:6633"}
-	c.ListenAndServe()
 }

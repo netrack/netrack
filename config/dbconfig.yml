@@ -1,0 +1,17 @@
+development:
+  dialect: postgres
+  datasource: user=netrack-user password=netrack dbname=netrack-dev sslmode=disable
+  dir: migrations/postgres
+  table: migrations
+
+test:
+  dialect: postgres
+  datasource: user=netrack-user password=netrack dbname=netrack-test sslmode=disable
+  dir: migrations/postgres
+  table: migrations
+
+production:
+  dialect: postgres
+  datasource: user=netrack-user password=netrack dbname=netrack sslmode=disable
+  dir: migrations/postgres
+  table: migrations

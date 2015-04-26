@@ -127,6 +127,9 @@ type MechanismMap interface {
 // BaseMechanismManager manages networking
 // mechanisms using drivers.
 type MechanismManager interface {
+	// Mechanism returns registered mechanism by specified name.
+	Mechanism(string) (Mechanism, error)
+
 	// Enable performs initialization of registered mechanisms.
 	Enable(*MechanismContext)
 
@@ -149,6 +152,15 @@ type MechanismManager interface {
 // BaseMechanismManager implements MechanismManager interface.
 type BaseMechanismManager struct {
 	Mechanisms MechanismMap
+}
+
+// Mechanism implements MechanismManager interface.
+func (m *BaseMechanismManager) Mechanism(name string) (Mechanism, error) {
+	if mechanism, ok := m.Mechanisms.Get(name); ok {
+		return mechanism, nil
+	}
+
+	return nil, ErrMechanismNotRegistered
 }
 
 // Enable enables all registered mechanisms

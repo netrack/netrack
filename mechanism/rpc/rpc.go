@@ -6,7 +6,7 @@ import (
 )
 
 // Type represents name of calling function.
-type Type string
+type Type interface{}
 
 // Param describes types that could be passed as
 // parameters in a function call method.

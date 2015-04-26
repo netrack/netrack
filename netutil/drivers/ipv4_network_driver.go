@@ -64,6 +64,10 @@ func (d *IPv4Driver) ParseAddr(s string) (mech.NetworkAddr, error) {
 	return &IPv4Addr{ip, net.Mask}, nil
 }
 
+func (d *IPv4Driver) CreateAddr(addr []byte, mask []byte) mech.NetworkAddr {
+	return &IPv4Addr{addr, mask}
+}
+
 func (d *IPv4Driver) Addr(port uint32) (mech.NetworkAddr, error) {
 	if addr, ok := d.addrs[port]; ok {
 		return addr, nil

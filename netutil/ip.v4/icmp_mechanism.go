@@ -110,7 +110,7 @@ func (m *ICMPMechanism) UpdateNetwork(context *mech.NetworkContext) error {
 	lldriver, err := m.C.Link.Driver()
 	if err != nil {
 		log.ErrorLog("icmp/UPDATE_NETWORK",
-			"Network layer driver is not intialized: ", err)
+			"Link layer driver is not intialized: ", err)
 		return err
 	}
 

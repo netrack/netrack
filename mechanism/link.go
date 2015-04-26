@@ -115,6 +115,9 @@ type LinkDriver interface {
 	// ParseAddr returns link layer address from string.
 	ParseAddr(s string) (LinkAddr, error)
 
+	// CreateAddr returns a new LinkAddr
+	CreateAddr([]byte) LinkAddr
+
 	// Addr returns link layer address of specified port.
 	Addr(portNo uint32) (LinkAddr, error)
 

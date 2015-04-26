@@ -2,15 +2,17 @@ package rpc
 
 import (
 	"errors"
+	"reflect"
 )
 
 var (
 	ErrEmptyParam   = errors.New("rpc: param list is empty")
 	ErrLenMismatch  = errors.New("rpc: parameters length mismatch")
 	ErrTypeMismatch = errors.New("rpc: type mismatch")
+	ErrUnexpected   = errors.New("rpc: unexpected error")
 )
 
-func lenHelper(args []interface{}) error {
+func LenHelper(args []interface{}) error {
 	if len(args) == 0 {
 		return ErrEmptyParam
 	}
@@ -18,63 +20,39 @@ func lenHelper(args []interface{}) error {
 	return nil
 }
 
-func Uint16Param(u uint16) Param {
-	return ParamFunc(func(args ...interface{}) error {
-		if err := lenHelper(args); err != nil {
+func MakeParam(param interface{}) Param {
+	return ParamFunc(func(args ...interface{}) (err error) {
+		defer func() {
+			recovered := recover()
+			if recovered == nil {
+				return
+			}
+
+			err = ErrUnexpected
+
+			if recoveredErr, ok := recovered.(error); ok {
+				err = recoveredErr
+			}
+		}()
+
+		if err := LenHelper(args); err != nil {
 			return err
 		}
 
-		if p, ok := args[0].(*uint16); ok {
-			*p = u
-			return nil
+		newValue := reflect.ValueOf(args[0])
+		// Receiver should be a pointer and can be changed.
+		if newValue.Kind() != reflect.Ptr || !newValue.Elem().CanSet() {
+			return ErrTypeMismatch
 		}
 
-		return ErrTypeMismatch
-	})
-}
-
-func Uint32Param(u uint32) Param {
-	return ParamFunc(func(args ...interface{}) error {
-		if err := lenHelper(args); err != nil {
-			return err
+		paramValue := reflect.ValueOf(param)
+		// Values shoud be the same type.
+		if paramValue.Type() != newValue.Elem().Type() {
+			return ErrTypeMismatch
 		}
 
-		if p, ok := args[0].(*uint32); ok {
-			*p = u
-			return nil
-		}
-
-		return ErrTypeMismatch
-	})
-}
-
-func StringParam(s string) Param {
-	return ParamFunc(func(args ...interface{}) error {
-		if err := lenHelper(args); err != nil {
-			return err
-		}
-
-		if p, ok := args[0].(*string); ok {
-			*p = s
-			return nil
-		}
-
-		return ErrTypeMismatch
-	})
-}
-
-func ByteSliceParam(b []byte) Param {
-	return ParamFunc(func(args ...interface{}) error {
-		if err := lenHelper(args); err != nil {
-			return err
-		}
-
-		if p, ok := args[0].(*[]byte); ok {
-			*p = b
-			return nil
-		}
-
-		return ErrTypeMismatch
+		newValue.Elem().Set(paramValue)
+		return nil
 	})
 }
 
@@ -94,63 +72,39 @@ func CompositeParam(params ...Param) Param {
 	})
 }
 
-func StringResult(p *string) Result {
-	return ResultFunc(func(args ...interface{}) error {
-		if err := lenHelper(args); err != nil {
+func MakeResult(result interface{}) Result {
+	return ResultFunc(func(args ...interface{}) (err error) {
+		defer func() {
+			recovered := recover()
+			if recovered == nil {
+				return
+			}
+
+			err = ErrUnexpected
+
+			if recoveredErr, ok := recovered.(error); ok {
+				err = recoveredErr
+			}
+		}()
+
+		if err := LenHelper(args); err != nil {
 			return err
 		}
 
-		if s, ok := args[0].(string); ok {
-			*p = s
-			return nil
+		resultValue := reflect.ValueOf(result)
+		// Result should be a pointer and can be changed.
+		if resultValue.Kind() != reflect.Ptr || !resultValue.Elem().CanSet() {
+			return ErrTypeMismatch
 		}
 
-		return ErrTypeMismatch
-	})
-}
-
-func ByteSliceResult(b *[]byte) Result {
-	return ResultFunc(func(args ...interface{}) error {
-		if err := lenHelper(args); err != nil {
-			return err
+		newValue := reflect.ValueOf(args[0])
+		// Values shoud be the same type.
+		if resultValue.Elem().Type() != newValue.Type() {
+			return ErrTypeMismatch
 		}
 
-		if slice, ok := args[0].([]byte); ok {
-			*b = slice
-			return nil
-		}
-
-		return ErrTypeMismatch
-	})
-}
-
-func StringSliceResult(s *[]string) Result {
-	return ResultFunc(func(args ...interface{}) error {
-		if err := lenHelper(args); err != nil {
-			return err
-		}
-
-		if slice, ok := args[0].([]string); ok {
-			*s = slice
-			return nil
-		}
-
-		return ErrTypeMismatch
-	})
-}
-
-func Uint32Result(u *uint32) Result {
-	return ResultFunc(func(args ...interface{}) error {
-		if err := lenHelper(args); err != nil {
-			return err
-		}
-
-		if p, ok := args[0].(uint32); ok {
-			*u = p
-			return nil
-		}
-
-		return ErrTypeMismatch
+		resultValue.Elem().Set(newValue)
+		return nil
 	})
 }
 

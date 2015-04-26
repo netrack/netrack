@@ -43,6 +43,10 @@ func NewEthernetLinkDriver() mech.LinkDriver {
 	return &EthernetLinkDriver{}
 }
 
+func (d *EthernetLinkDriver) CreateAddr(addr []byte) mech.LinkAddr {
+	return EthernetAddr(addr)
+}
+
 func (d *EthernetLinkDriver) ParseAddr(s string) (mech.LinkAddr, error) {
 	return nil, nil
 }

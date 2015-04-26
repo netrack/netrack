@@ -82,6 +82,9 @@ func NewARPMechanism() mech.NetworkMechanism {
 func (m *ARPMechanism) Enable(c *mech.MechanismContext) {
 	m.BaseMechanism.Enable(c)
 
+	// Register resolve function by function address.
+	m.C.Func.RegisterFunc((*ARPMechanism).ResolveFunc, resolveFuncWrapper)
+
 	// Handle incoming ARP requests.
 	m.C.Mux.HandleFunc(of.T_PACKET_IN, m.packetInHandler)
 
@@ -286,75 +289,96 @@ func (m *ARPMechanism) packetInHandler(rw of.ResponseWriter, r *of.Request) {
 	}
 }
 
-func (m *ARPMechanism) resolveCaller(param rpc.Param, result rpc.Result) error {
-	//var srcIPAddr, dstIPAddr []byte
-	//var portNo uint16
+// Wrapper of ARPMechanism.ResolveFunc
+func resolveFuncWrapper(param rpc.Param, result rpc.Result) (err error) {
+	var arpMech ARPMechanism
+	var nladdr mech.NetworkAddr
+	var port uint32
 
-	//if err := param.Obtain(&srcIPAddr, &dstIPAddr, &portNo); err != nil {
-	//log.ErrorLog("arp/ARP_RESOLVE",
-	//"Failed to obtain argument: ", err)
-	//return err
-	//}
+	if err = param.Obtain(&arpMech, &nladdr, &port); err != nil {
+		log.ErrorLog("arp/RESOLVE_FUNC_WRAPPER",
+			"Failed to obtain arguments: ", err)
+		return err
+	}
 
-	//// Check if entry already in a neigh table
-	//dstHWAddr, err := m.T.Lookup(dstIPAddr)
-	//if err == nil {
-	//return result.Return(dstHWAddr)
-	//}
+	var lladdr mech.LinkAddr
+	if lladdr, err = arpMech.ResolveFunc(nladdr, port); err == nil {
+		return result.Return(lladdr)
+	}
 
-	//var srcHWAddr []byte
-	//err = m.C.Func.Call(rpc.T_OFP_PORT_HWADDR,
-	//rpc.UInt16Param(),
-	//rpc.ByteSliceResult(&srcHWaddr))
+	return err
+}
 
-	//if err != nil {
-	//log.ErrorLog("arp/ARP_RESOLVE",
-	//"Failed to fetch port hardware address: ", err)
-	//return err
-	//}
+func (m *ARPMechanism) ResolveFunc(addr mech.NetworkAddr, port uint32) (mech.LinkAddr, error) {
+	lldriver, err := m.C.Link.Driver()
+	if err != nil {
+		log.ErrorLog("arp/RESOLVE_FUNC",
+			"Link layer driver is not intialized: ", err)
+		return nil, err
+	}
 
-	//// Start long process of discovery
-	//eth := l2.EthernetII{
-	//net.HardwareAddr(l2.HWBcast),
-	//net.HardwareAddr(net.srcHWAddr),
-	//iana.ETHT_ARP,
-	//}
+	nldriver, err := m.C.Network.Driver()
+	if err != nil {
+		log.ErrorLog("arp/RESOLVE_FUNC",
+			"Network layer driver is not intialized: ", err)
+		return nil, err
+	}
 
-	//arp := l3.ARP{
-	//HWType:    l2.ARPT_ETHERNET,
-	//ProtoType: iana.ETHT_IPV4,
-	//Operation: l2.ARPOT_REQUEST,
-	//HWSrc:     net.HardwareAddr(srcHWAddr),
-	//ProtoSrc:  net.IP(srcIPAddr),
-	//HWDst:     net.HardwareAddr(l2.HWUnspec),
-	//ProtoDst:  net.IP(dstIPAddr),
-	//}
+	// Get link layer address associated with egress port.
+	lladdr, err := lldriver.Addr(port)
+	if err != nil {
+		log.ErrorLogf("arp/RESOLVE_FUNC",
+			"Failed to resolve port '%d' hardware address: '%s'", port, err)
+		return nil, err
+	}
 
-	//packet := ofp.PacketOut{
-	//BufferID: ofp.NO_BUFFER,
-	//InPort:   ofp.P_FLOOD,
-	//Actions:  ofp.Actions{},
-	//}
+	// Get network layer address associated with egress port.
+	nladdr, err := nldriver.Addr(port)
+	if err != nil {
+		log.ErrorLogf("arp/RESOLVE_FUNC",
+			"Failed to resolve port '%d' network address: '%s'", port, err)
+		return nil, err
+	}
 
-	//r, err := of.NewRequest(of.T_PACKET_OUT, of.NewReader(&packet, &eth, &arp))
-	//if err != nil {
-	//log.ErrorLog("arp/ARP_RESOLVE",
-	//"Failed to craete a new ARP request: ", err)
-	//return err
-	//}
+	// Start long process of discovery
+	//TODO: HWType and ProtoType should return driver
+	arp := l3.ARP{
+		HWType:    l3.ARPT_ETHERNET,
+		ProtoType: iana.ETHT_IPV4,
+		Operation: l3.ARPOT_REQUEST,
+		HWSrc:     lladdr.Bytes(),
+		ProtoSrc:  nladdr.Bytes(),
+		ProtoDst:  addr.Bytes(),
+	}
 
-	//if err = m.C.Switch.Conn().Send(r); err != nil {
-	//log.ErrorLog("arp/ARP_RESOLVE",
-	//"Failed to send an ARP request: ", err)
-	//return err
-	//}
+	packetOut := ofp.PacketOut{
+		InPort:  ofp.P_CONTROLLER,
+		Actions: ofp.Actions{ofp.ActionOutput{ofp.PortNo(port), 0}},
+	}
 
-	//if err = m.C.Switch.Conn().Flush(); err != nil {
-	//log.ErrorLog("arp/ARP_RESOLVE",
-	//"Failed to flush data to connection: ", err)
-	//return err
-	//}
+	llbcast := lldriver.CreateAddr(l2.HWBcast)
+	llwriter := mech.MakeLinkWriterTo(lldriver, &mech.LinkFrame{
+		llbcast, lladdr, mech.Proto(iana.ETHT_ARP), 0,
+	})
 
-	//return nil
-	return nil
+	r, err := of.NewRequest(of.T_PACKET_OUT, of.NewReader(&packetOut, llwriter, &arp))
+	if err != nil {
+		log.ErrorLog("arp/RESOLVE_FUNC",
+			"Failed to create a new ofp_packet_out request: ", err)
+		return nil, err
+	}
+
+	if err = m.C.Switch.Conn().Send(r); err != nil {
+		log.ErrorLog("arp/RESOLVE_FUNC",
+			"Failed to send an ARP request: ", err)
+		return nil, err
+	}
+
+	if err = m.C.Switch.Conn().Flush(); err != nil {
+		log.ErrorLog("arp/RESOLVE_FUNC",
+			"Failed to flush data to connection: ", err)
+		return nil, err
+	}
+
+	return nil, nil
 }

@@ -66,6 +66,7 @@ type NetworkManagerContext struct {
 	Ports []NetworkPort `json:"ports"`
 }
 
+// Port searchs for a specified port number.
 func (c *NetworkManagerContext) Port(p uint32) NetworkPort {
 	for _, port := range c.Ports {
 		if port.Port == p {
@@ -76,6 +77,7 @@ func (c *NetworkManagerContext) Port(p uint32) NetworkPort {
 	return NetworkPort{}
 }
 
+// SetPort updates ports with specified one.
 func (c *NetworkManagerContext) SetPort(p NetworkPort) {
 	for i, port := range c.Ports {
 		if port.Port == p.Port {
@@ -87,6 +89,7 @@ func (c *NetworkManagerContext) SetPort(p NetworkPort) {
 	c.Ports = append(c.Ports, p)
 }
 
+// DelPort remove specified port from port list.
 func (c *NetworkManagerContext) DelPort(p NetworkPort) {
 	for i, port := range c.Ports {
 		if port.Port == p.Port {
@@ -168,6 +171,9 @@ type NetworkDriver interface {
 
 	// ParseAddr returns network layer address from string.
 	ParseAddr(string) (NetworkAddr, error)
+
+	// CreateAddr returns a new NetworkAddr
+	CreateAddr([]byte, []byte) NetworkAddr
 
 	// Addr returns network layer address of specified switch port.
 	Addr(uint32) (NetworkAddr, error)

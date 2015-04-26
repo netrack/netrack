@@ -2,7 +2,6 @@ package ip
 
 import (
 	//"errors"
-	//"net"
 
 	"github.com/netrack/net/iana"
 	"github.com/netrack/netrack/logging"
@@ -34,6 +33,9 @@ func NewIPMechanism() mech.NetworkMechanism {
 // Enable implements Mechanism interface
 func (m *IPMechanism) Enable(c *mech.MechanismContext) {
 	m.BaseNetworkMechanism.Enable(c)
+
+	// Handle incoming IPv4 packets.
+	m.C.Mux.HandleFunc(of.T_PACKET_IN, m.packetInHandler)
 
 	log.InfoLog("ipv4/ENABLE_HOOK",
 		"Mechanism IP enabled")
@@ -154,7 +156,7 @@ func (m *IPMechanism) UpdateNetwork(context *mech.NetworkContext) error {
 
 	r, err := of.NewRequest(of.T_FLOW_MOD, of.NewReader(&ofp.FlowMod{
 		TableID:      ofp.Table(m.tableNo),
-		Priority:     1,
+		Priority:     10,
 		Command:      ofp.FC_ADD,
 		BufferID:     1,
 		Match:        match,
@@ -185,7 +187,7 @@ func (m *IPMechanism) DeleteNetwork(context *mech.NetworkContext) error {
 	return nil
 }
 
-func (m *IPMechanism) packetHandler(rw *of.ResponseWriter, r *of.Request) {
+func (m *IPMechanism) packetInHandler(rw of.ResponseWriter, r *of.Request) {
 	//var packet ofp.PacketIn
 
 	//if _, err := packet.ReadFrom(r.Body); err != nil {

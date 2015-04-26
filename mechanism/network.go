@@ -213,6 +213,55 @@ type NetworkMechanism interface {
 	DeleteNetwork(*NetworkContext) error
 }
 
+type CompositeNetworkMechanism struct {
+	BaseMechanism
+
+	Mechanisms []NetworkMechanism
+}
+
+func (m *CompositeNetworkMechanism) do(fn func(NetworkMechanism) error) error {
+	for _, mechanism := range m.Mechanisms {
+		if err := fn(mechanism); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (m *CompositeNetworkMechanism) Enable(context *MechanismContext) {
+	m.do(func(mechanism NetworkMechanism) error {
+		mechanism.Enable(context)
+		return nil
+	})
+}
+
+func (m *CompositeNetworkMechanism) Activate() {
+	m.do(func(mechanism NetworkMechanism) error {
+		mechanism.Activate()
+		return nil
+	})
+}
+
+func (m *CompositeNetworkMechanism) Disable() {
+	m.do(func(mechanism NetworkMechanism) error {
+		mechanism.Disable()
+		return nil
+	})
+}
+
+func (m *CompositeNetworkMechanism) UpdateNetwork(context *NetworkContext) error {
+	return m.do(func(mechanism NetworkMechanism) error {
+		return mechanism.UpdateNetwork(context)
+	})
+}
+
+func (m *CompositeNetworkMechanism) DeleteNetwork(context *NetworkContext) error {
+	return m.do(func(mechanism NetworkMechanism) error {
+		return mechanism.DeleteNetwork(context)
+	})
+}
+
 // BaseNetworkMechanism implements NetworkMechanism interface.
 type BaseNetworkMechanism struct {
 	BaseMechanism
@@ -226,21 +275,6 @@ func (m *BaseNetworkMechanism) UpdateNetwork(c *NetworkContext) error {
 // DeleteNetwork implements NetworkMechanism interface.
 func (m *BaseNetworkMechanism) DeleteNetwork(c *NetworkContext) error {
 	return nil
-}
-
-// NetworkMechanismConstructor is a generic
-// constructor for network type mechanisms.
-type NetworkMechanismConstructor interface {
-	// New returns a new NetworkMechanism instance.
-	New() NetworkMechanism
-}
-
-// NetworkMechanismConstructorFunc is a function adapter for
-// NetworkMechanismConstructor.
-type NetworkMechanismConstructorFunc func() NetworkMechanism
-
-func (fn NetworkMechanismConstructorFunc) New() NetworkMechanism {
-	return fn()
 }
 
 // NetworkDriverConstructor is a generic
@@ -274,6 +308,32 @@ func RegisterNetworkMechanism(name string, constructor NetworkMechanismConstruct
 	}
 
 	networks[name] = constructor
+}
+
+// NetworkMechanismConstructor is a generic
+// constructor for network type mechanisms.
+type NetworkMechanismConstructor interface {
+	// New returns a new NetworkMechanism instance.
+	New() NetworkMechanism
+}
+
+// NetworkMechanismConstructorFunc is a function adapter for
+// NetworkMechanismConstructor.
+type NetworkMechanismConstructorFunc func() NetworkMechanism
+
+func (fn NetworkMechanismConstructorFunc) New() NetworkMechanism {
+	return fn()
+}
+
+func NetworkMechanismCompositeConstructor(constuctors ...NetworkMechanismConstructor) NetworkMechanismConstructor {
+	return NetworkMechanismConstructorFunc(func() NetworkMechanism {
+		var mechanisms []NetworkMechanism
+		for _, constructor := range networks {
+			mechanisms = append(mechanisms, constructor.New())
+		}
+
+		return &CompositeNetworkMechanism{Mechanisms: mechanisms}
+	})
 }
 
 // NetworkMechanisms returns map of registered network layer mechanisms

@@ -103,14 +103,26 @@ func (h *NetworkHandler) indexHandler(rw http.ResponseWriter, r *http.Request) {
 
 	var networks []models.Network
 
-	for _, port := range context.Switch.PortList() {
-		network, _ := context.Network.Context(port.Number)
+	network, err := context.Network.Context()
+	if err != nil {
+		log.ErrorLog("network_handlers/INDEX_HANDLER",
+			"Failed to retrieve network context: ", err)
+
+		text := fmt.Sprintf("failed to access database")
+
+		rw.WriteHeader(http.StatusServiceUnavailable)
+		wf.Write(rw, r, models.Error{text})
+		return
+	}
+
+	for _, switchPort := range context.Switch.PortList() {
+		networkPort := network.Port(switchPort.Number)
 
 		networks = append(networks, models.Network{
 			Encapsulation: models.NullString(network.Driver),
-			Addr:          models.NullString(network.Addr),
-			InterfaceName: port.Name,
-			Interface:     port.Number,
+			Addr:          models.NullString(networkPort.Addr),
+			InterfaceName: switchPort.Name,
+			Interface:     switchPort.Number,
 		})
 	}
 
@@ -140,9 +152,11 @@ func (h *NetworkHandler) createHandler(rw http.ResponseWriter, r *http.Request) 
 	}
 
 	context := &mech.NetworkManagerContext{
-		Addr:   network.Addr.String(),
-		Driver: network.Encapsulation.String(),
-		Port:   switchPort.Number,
+		Datapath: switchContext.Switch.ID(),
+		Driver:   network.Encapsulation.String(),
+		Ports: []mech.NetworkPort{
+			{network.Addr.String(), switchPort.Number},
+		},
 	}
 
 	if err = switchContext.Network.UpdateNetwork(context); err != nil {
@@ -168,13 +182,14 @@ func (h *NetworkHandler) showHandler(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	network, _ := context.Network.Context(switchPort.Number)
+	network, _ := context.Network.Context()
+	networkPort := network.Port(switchPort.Number)
 
 	// Return interface network data.
 	rw.WriteHeader(http.StatusOK)
 	wf.Write(rw, r, models.Network{
 		Encapsulation: models.NullString(network.Driver),
-		Addr:          models.NullString(network.Addr),
+		Addr:          models.NullString(networkPort.Addr),
 		InterfaceName: switchPort.Name,
 		Interface:     switchPort.Number,
 	})

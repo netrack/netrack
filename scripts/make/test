@@ -1,10 +1,19 @@
 #!/bin/bash
 set -e
 
-#echo $PWD
+# go test command options
+GOFLAGS="-v"
+
+# List of packages to ignore
+IGNORE=.git
+
+# Make race check available only for 64-bit platforms
+if [ -n "$(uname -i | grep -E "(amd64|x86_64)")" ]; then
+    GOTAGS="${GOTAGS} -race"
+fi
 
 # Go throught project hierarchy and run tests where they are found.
-for package in $(find . -type d); do
+for package in $(find -name "${IGNORE}" -prune -o -type d); do
     TESTS=$(ls -l ${package}/*_test.go 2>/dev/null | xargs)
 
     if [ -z "${TESTS}" ]; then
@@ -13,5 +22,5 @@ for package in $(find . -type d); do
     fi
 
     echo "=== INFO: Testing package ${package}"
-    go test -v -race -tags="test" "${package}"
+    go test ${GOFLAGS} -tags="test" "${package}"
 done

@@ -4,9 +4,20 @@ import (
 	"errors"
 	"io"
 
+	"github.com/netrack/netrack/database"
 	"github.com/netrack/netrack/ioutil"
 	"github.com/netrack/netrack/logging"
 )
+
+const (
+	// LinkModel is a database table name (networks)
+	LinkModel db.Model = "link"
+)
+
+func init() {
+	// Register model in a database to make it available
+	db.Register(LinkModel)
+}
 
 var (
 	// ErrNewtorkNotIntialized is returned on

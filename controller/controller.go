@@ -5,6 +5,7 @@ import (
 	"net/url"
 
 	"github.com/netrack/netrack/config"
+	"github.com/netrack/netrack/database"
 	"github.com/netrack/netrack/httputil"
 	"github.com/netrack/netrack/logging"
 	"github.com/netrack/netrack/mechanism"
@@ -24,8 +25,19 @@ type C struct {
 }
 
 func (c *C) ListenAndServe() {
+	c.initializeDatabase()
 	c.initializeHTTPDrivers()
 	c.initializeSwitches()
+}
+
+func (c *C) initializeDatabase() {
+	persister, err := db.Open(c.Config.ConnString())
+	if err != nil {
+		log.FatalLog("controller/INTIALIZE_DATABASE",
+			"Failed to open database connection: ", err)
+	}
+
+	db.DefaultDB = persister
 }
 
 func (c *C) initializeSwitches() {
@@ -79,6 +91,9 @@ func (c *C) initializeHTTPDrivers() {
 
 	// Create HTTP Server.
 	s := &http.Server{Addr: u.Host, Handler: context.Mux}
+
+	log.DebugLogf("controller/INTIALIZE_HTTP",
+		"Starting service HTTP at: http://%s", u.Host)
 
 	// Start serving.
 	go func() {

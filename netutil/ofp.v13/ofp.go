@@ -9,7 +9,7 @@ import (
 
 func init() {
 	constructor := mech.ExtensionMechanismConstructorFunc(NewOFPMechanism)
-	mech.RegisterExtensionMechanism("ofp1.3-mechanism", constructor)
+	mech.RegisterExtensionMechanism("OFP#1.3", constructor)
 }
 
 type OFPMechanism struct {

@@ -3,6 +3,7 @@ package db
 import (
 	"bytes"
 	"database/sql"
+	"errors"
 	"fmt"
 
 	_ "github.com/lib/pq"
@@ -12,7 +13,17 @@ const (
 	driverName = "postgres"
 )
 
-func prepareHelper(db *sql.DB, resource string, idx ...string) (*sqlStmt, error) {
+type pgStmt map[Model]*Stmt
+
+func (s pgStmt) Stmt(m Model) (*Stmt, error) {
+	if stmts, ok := s[m]; ok {
+		return stmts, nil
+	}
+
+	return nil, errors.New("db: model in not presetnt")
+}
+
+func prepareHelper(db *sql.DB, resource string, idx ...string) (*Stmt, error) {
 	var buf bytes.Buffer
 
 	for _, column := range idx {
@@ -35,6 +46,15 @@ func prepareHelper(db *sql.DB, resource string, idx ...string) (*sqlStmt, error)
 		return nil, fmt.Errorf("db: failed to prepare sql UPDATE statement: '%s'", err)
 	}
 
+	// Prepare statement for SELECT FOR UPDATE operations
+	query = fmt.Sprintf("SELECT %s FROM %ss WHERE %s%s->>'id' = ($1) FOR UPDATE",
+		resource, resource, resource, buf.String())
+
+	lockStmt, err := db.Prepare(query)
+	if err != nil {
+		return nil, fmt.Errorf("db: failed to prepare sql SELECT FOR UPDATE statement: '%s'", err)
+	}
+
 	// Prepare statement for SELECT operations
 	query = fmt.Sprintf("SELECT %s FROM %ss WHERE %s%s->>'id' = ($1)",
 		resource, resource, resource, buf.String())
@@ -53,30 +73,22 @@ func prepareHelper(db *sql.DB, resource string, idx ...string) (*sqlStmt, error)
 		return nil, fmt.Errorf("db: failed to prepare sql DELETE statement: '%s'", err)
 	}
 
-	return &sqlStmt{createStmt, updateStmt, readStmt, deleteStmt}, nil
+	return &Stmt{lockStmt, createStmt, updateStmt, readStmt, deleteStmt}, nil
 }
 
-func prepareStmts(db *sql.DB) (map[Model]*sqlStmt, error) {
-	fakeStmt, err := prepareHelper(db, "fake")
-	if err != nil {
-		return nil, err
+func prepareStmts(db *sql.DB) (Statementer, error) {
+	pgStmt := make(pgStmt)
+
+	for model := range models {
+		stmt, err := prepareHelper(db, string(model))
+		if err != nil {
+			return nil, err
+		}
+
+		pgStmt[model] = stmt
 	}
 
-	linkStmt, err := prepareHelper(db, "link")
-	if err != nil {
-		return nil, err
-	}
-
-	networkStmt, err := prepareHelper(db, "network")
-	if err != nil {
-		return nil, err
-	}
-
-	return map[Model]*sqlStmt{
-		FakeModel:    fakeStmt,
-		LinkModel:    linkStmt,
-		NetworkModel: networkStmt,
-	}, nil
+	return pgStmt, nil
 }
 
 // TruncateTables erases data from tables.

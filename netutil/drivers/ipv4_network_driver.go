@@ -11,7 +11,7 @@ import (
 	"github.com/netrack/netrack/mechanism"
 )
 
-const IPv4DriverName = "IPv4/RFC791"
+const IPv4DriverName = "IPv4#RFC791"
 
 func init() {
 	constructor := mech.NetworkDriverConstructorFunc(NewIPv4Driver)

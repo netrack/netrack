@@ -18,7 +18,7 @@ import (
 
 func init() {
 	constructor := mech.NetworkMechanismConstructorFunc(NewARPMechanism)
-	mech.RegisterNetworkMechanism("ARP~RFC826", constructor)
+	mech.RegisterNetworkMechanism("ARP#RFC826", constructor)
 }
 
 type NeighEntry struct {

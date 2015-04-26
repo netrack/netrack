@@ -12,11 +12,9 @@ import (
 	"github.com/netrack/openflow/ofp.v13"
 )
 
-const TableIPv4 ofp.Table = 4
-
 func init() {
 	constructor := mech.NetworkMechanismConstructorFunc(NewIPMechanism)
-	mech.RegisterNetworkMechanism("IPv4", constructor)
+	mech.RegisterNetworkMechanism("IPv4#RFC791", constructor)
 }
 
 type IPMechanism struct {

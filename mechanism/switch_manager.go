@@ -79,6 +79,7 @@ func (m *SwitchManager) CreateSwitch(conn of.OFPConn) error {
 	manager := BaseMechanismManager{NetworkMechanisms()}
 	networkManager := &BaseNetworkMechanismManager{
 		BaseMechanismManager: manager,
+		Datapath:             sw.ID(),
 		Drivers:              NetworkDrivers(),
 	}
 
@@ -105,6 +106,11 @@ func (m *SwitchManager) CreateSwitch(conn of.OFPConn) error {
 	linkManager.Activate()
 	networkManager.Activate()
 	extensionManager.Activate()
+
+	if err = networkManager.CreateNetwork(); err != nil {
+		log.ErrorLog("switch_manager/CREATE_SWITCH",
+			"Failed to create network configuration: ", err)
+	}
 
 	log.DebugLog("switch_manager/CREATE_SWITCH",
 		"Switch successfully created")

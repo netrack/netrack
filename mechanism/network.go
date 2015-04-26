@@ -5,10 +5,20 @@ import (
 	"io"
 	"sync"
 
-	_ "github.com/netrack/netrack/database"
+	"github.com/netrack/netrack/database"
 	"github.com/netrack/netrack/ioutil"
 	"github.com/netrack/netrack/logging"
 )
+
+const (
+	// NetworkModel is a database table name (networks)
+	NetworkModel db.Model = "network"
+)
+
+func init() {
+	// Register model in a database to make it available
+	db.Register(NetworkModel)
+}
 
 var (
 	// ErrNetworkNotRegistered is returned on
@@ -34,18 +44,56 @@ type NetworkAddr interface {
 	Mask() []byte
 }
 
-type NetworkManagerContext struct {
-	// Datapath identifier.
-	Datapath string `json:"id"`
-
+// NetworkPort represents network layer
+// port abstraction.
+type NetworkPort struct {
 	// Network layer address string.
 	Addr string `json:"address"`
+
+	// Switch port number.
+	Port uint32 `json:"port"`
+}
+
+type NetworkManagerContext struct {
+	// Datapath identifier. This one is necessary
+	// only for database storing.
+	Datapath string `json:"id"`
 
 	// Network driver name.
 	Driver string `json:"driver"`
 
-	// Switch port number.
-	Port uint32 `json:"port"`
+	// List of ports to modify.
+	Ports []NetworkPort `json:"ports"`
+}
+
+func (c *NetworkManagerContext) Port(p uint32) NetworkPort {
+	for _, port := range c.Ports {
+		if port.Port == p {
+			return port
+		}
+	}
+
+	return NetworkPort{}
+}
+
+func (c *NetworkManagerContext) SetPort(p NetworkPort) {
+	for i, port := range c.Ports {
+		if port.Port == p.Port {
+			c.Ports[i] = p
+			return
+		}
+	}
+
+	c.Ports = append(c.Ports, p)
+}
+
+func (c *NetworkManagerContext) DelPort(p NetworkPort) {
+	for i, port := range c.Ports {
+		if port.Port == p.Port {
+			c.Ports = append(c.Ports[:i], c.Ports[i+1:]...)
+			return
+		}
+	}
 }
 
 // NetworkContext wraps network resources and provides
@@ -298,8 +346,12 @@ type NetworkMechanismManager interface {
 	// NetworkDriver returns active network layer driver instance.
 	Driver() (NetworkDriver, error)
 
-	// Context returns port network context.
-	Context(uint32) (*NetworkManagerContext, error)
+	// Context returns network context.
+	Context() (*NetworkManagerContext, error)
+
+	// CreateNetwork allocates necessary resources and restores
+	// persisted state.
+	CreateNetwork() error
 
 	// UpdateNetwork forwards call to all registered mechanisms.
 	UpdateNetwork(*NetworkManagerContext) error
@@ -310,6 +362,9 @@ type NetworkMechanismManager interface {
 
 // BaseNetworkMechanismManager implements NetworkMechanismManager interface.
 type BaseNetworkMechanismManager struct {
+	// Datapath identifier of the serving switch.
+	Datapath string
+
 	// Base mechanism manager instance.
 	BaseMechanismManager
 
@@ -394,7 +449,7 @@ func (m *BaseNetworkMechanismManager) Driver() (NetworkDriver, error) {
 }
 
 // Context returns network context of specified switch port.
-func (m *BaseNetworkMechanismManager) Context(port uint32) (*NetworkManagerContext, error) {
+func (m *BaseNetworkMechanismManager) Context() (*NetworkManagerContext, error) {
 	m.lock.RLock()
 	defer m.lock.RUnlock()
 
@@ -404,85 +459,209 @@ func (m *BaseNetworkMechanismManager) Context(port uint32) (*NetworkManagerConte
 		return &NetworkManagerContext{}, ErrNetworkNotInitialized
 	}
 
-	networkAddr, err := m.drv.Addr(port)
+	var context NetworkManagerContext
+	err := db.Read(NetworkModel, m.Datapath, &context)
 	if err != nil {
 		log.ErrorLog("network/CONTEXT",
-			"Failed to find port network layer address: ", err)
-		return &NetworkManagerContext{}, err
+			"Failed to read network configuration from the database: ", err)
+		return nil, err
 	}
 
-	context := &NetworkManagerContext{
-		Driver: m.drv.Name(),
-		Addr:   networkAddr.String(),
-		Port:   port,
+	return &context, nil
+}
+
+func (m *BaseNetworkMechanismManager) CreateNetwork() error {
+	var context NetworkManagerContext
+
+	err := db.Transaction(func(p db.ModelPersister) error {
+		// Lock to make consistent configuration
+		err := p.Lock(NetworkModel, m.Datapath, &context)
+
+		// Create a new record in a dabase for a new switch
+		if err != nil {
+			log.InfoLog("network/CREATE_NETWORK",
+				"Creating network configuration for: ", m.Datapath)
+
+			err = p.Create(NetworkModel, &NetworkManagerContext{Datapath: m.Datapath})
+			if err != nil {
+				log.ErrorLog("network/CREATE_NETWORK",
+					"Failed to create network configuration: ", err)
+			}
+
+			return err
+		}
+
+		log.InfoLog("network/CREATE_NETWORK",
+			"Restoring network configuration for: ", m.Datapath)
+
+		// Nothing to do.
+		if context.Driver == "" {
+			return nil
+		}
+
+		// Restore state of the persited switch
+		if err := m.driver(context.Driver); err != nil {
+			return err
+		}
+
+		m.lock.RLock()
+		defer m.lock.RUnlock()
+
+		for _, port := range context.Ports {
+			addr, err := m.drv.ParseAddr(port.Addr)
+			if err != nil {
+				log.ErrorLog("network/UPDATE_NETWORK",
+					"Failed to parse network layer address: ", err)
+				return err
+			}
+
+			if err = m.drv.UpdateAddr(port.Port, addr); err != nil {
+				log.ErrorLog("network/UPDATE_NETWORK",
+					"Failed to update port network layer address: ", err)
+				return err
+			}
+
+			err = m.do(NetworkMechanism.UpdateNetwork, &NetworkContext{
+				Addr: addr,
+				Port: port.Port,
+			})
+
+			if err != nil {
+				log.ErrorLog("network/CREATE_NETWORK",
+					"Failed to create network for port: ", port.Port)
+				return err
+			}
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		log.ErrorLog("network/CREATE_NETWORK",
+			"Failed to create network records in a database: ", err)
 	}
 
-	return context, nil
+	return err
 }
 
 // UpdateNetwork calls corresponding method for activated mechanisms.
-func (m *BaseNetworkMechanismManager) UpdateNetwork(context *NetworkManagerContext) error {
-	if err := m.driver(context.Driver); err != nil {
+func (m *BaseNetworkMechanismManager) UpdateNetwork(context *NetworkManagerContext) (err error) {
+	if err = m.driver(context.Driver); err != nil {
 		return err
 	}
 
 	m.lock.RLock()
 	defer m.lock.RUnlock()
 
-	networkAddr, err := m.drv.ParseAddr(context.Addr)
-	if err != nil {
-		log.ErrorLog("network/UPDATE_NETWORK",
-			"Failed to parse network layer address: ", err)
-		return err
+	ports := context.Ports
+
+	for _, port := range ports {
+		addr, err := m.drv.ParseAddr(port.Addr)
+		if err != nil {
+			log.ErrorLog("network/UPDATE_NETWORK",
+				"Failed to parse network layer address: ", err)
+			return err
+		}
+
+		if err = m.drv.UpdateAddr(port.Port, addr); err != nil {
+			log.ErrorLog("network/UPDATE_NETWORK",
+				"Failed to update port network layer address: ", err)
+			return err
+		}
+
+		err = m.do(NetworkMechanism.UpdateNetwork, &NetworkContext{
+			Addr: addr,
+			Port: port.Port,
+		})
+
+		if err != nil {
+			log.ErrorLog("network/UPDATE_NETWORK",
+				"Failed to update network configuration: ", err)
+			return err
+		}
 	}
 
-	if err = m.drv.UpdateAddr(context.Port, networkAddr); err != nil {
-		log.ErrorLog("network/UPDATE_NETWORK",
-			"Failed to update port network layer address: ", err)
-		return err
-	}
+	// Update network configuration in a database.
+	err = db.Transaction(func(p db.ModelPersister) error {
+		var oldcontext NetworkManagerContext
 
-	err = m.do(NetworkMechanism.UpdateNetwork, &NetworkContext{
-		Addr: networkAddr,
-		Port: context.Port,
+		if err = db.Lock(NetworkModel, m.Datapath, &oldcontext); err != nil {
+			log.ErrorLog("network/UPDATE_NETWORK_DB_LOCK",
+				"Failed to lock record: ", err)
+			return err
+		}
+
+		// Save previous port configuration
+		context.Ports = oldcontext.Ports
+
+		// Update port configuration
+		for _, port := range ports {
+			context.SetPort(port)
+		}
+
+		if err = db.Update(NetworkModel, m.Datapath, context); err != nil {
+			log.ErrorLog("network/UPDATE_NETWORK_DB_UPDATE",
+				"Failed to update record: ", err)
+		}
+
+		return err
 	})
 
 	if err != nil {
 		log.ErrorLog("network/UPDATE_NETWORK",
-			"Failed to update network configuration: ", err)
-		return err
+			"Failed to create network records in a database: ", err)
 	}
-
-	// Update database
-	// if err = db.Update(db.NetworkModel, context.Datapath, context); err != nil {
-	// 	log.ErrorLog("network/UPDATE_NETWORK",
-	// 		"Failed to update network database representation: ", err)
-	// }
 
 	return err
 }
 
 // DeleteNetwork calls corresponding method for activated mechanisms.
-func (m *BaseNetworkMechanismManager) DeleteNetwork(context *NetworkManagerContext) error {
-	if err := m.driver(context.Driver); err != nil {
+func (m *BaseNetworkMechanismManager) DeleteNetwork(context *NetworkManagerContext) (err error) {
+	if err = m.driver(context.Driver); err != nil {
 		return err
 	}
 
-	networkAddr, err := m.drv.ParseAddr(context.Addr)
-	if err != nil {
-		return err
+	ports := context.Ports
+
+	for _, port := range ports {
+		err = m.do(NetworkMechanism.DeleteNetwork, &NetworkContext{
+			Port: port.Port,
+		})
+
+		if err != nil {
+			log.ErrorLog("network/DELETE_NETWORK",
+				"Failed to delete network configuration: ", err)
+			return err
+		}
 	}
 
-	err = m.do(NetworkMechanism.DeleteNetwork, &NetworkContext{
-		Addr: networkAddr,
-		Port: context.Port,
+	//TODO: delete address from the driver
+
+	// Update network configuration in a database.
+	err = db.Transaction(func(p db.ModelPersister) error {
+		if err = db.Lock(NetworkModel, m.Datapath, context); err != nil {
+			log.ErrorLog("network/DELETE_NETWORK_DB_LOCK",
+				"Failed to lock record: ", err)
+			return err
+		}
+
+		// Update port configuration
+		for _, port := range ports {
+			context.DelPort(port)
+		}
+
+		if err = db.Update(NetworkModel, m.Datapath, context); err != nil {
+			log.ErrorLog("network/DELETE_NETWORK_DB_DELETE",
+				"Failed to update record: ", err)
+		}
+
+		return err
 	})
 
-	// Delete network from the database.
-	// if err = db.Delete(db.NetworkModel, context.Datapath); err != nil {
-	// 	log.ErrorLog("network/DELETE_NETWORK",
-	// 		"Failed to delete network database representation: ", err)
-	// }
+	if err != nil {
+		log.ErrorLog("network/DELETE_NETWORK",
+			"Failed to delete network records from a database: ", err)
+	}
 
 	return err
 }

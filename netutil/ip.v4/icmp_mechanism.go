@@ -11,7 +11,7 @@ import (
 
 func init() {
 	constructor := mech.NetworkMechanismConstructorFunc(NewICMPMechanism)
-	mech.RegisterNetworkMechanism("ICMP/RFC792", constructor)
+	mech.RegisterNetworkMechanism("ICMP#RFC792", constructor)
 }
 
 type ICMPMechanism struct {

@@ -21,7 +21,7 @@ func init() {
 type EthernetAddr []byte
 
 func (a EthernetAddr) String() string {
-	addr := fmt.Sprintf("%x", a)
+	addr := fmt.Sprintf("%x", []byte(a))
 	var parts []string
 
 	for i := 0; i < len(addr); i += 2 {

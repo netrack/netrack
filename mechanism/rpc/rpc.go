@@ -2,6 +2,7 @@ package rpc
 
 import (
 	"errors"
+	"reflect"
 	"sync"
 )
 
@@ -67,7 +68,10 @@ func (c *procCaller) Register(t Type, caller Caller) error {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
-	if _, dup := c.methods[t]; dup {
+	// To prevent panic on unhashable types
+	typeValue := reflect.ValueOf(t)
+
+	if _, dup := c.methods[typeValue]; dup {
 		return errors.New("rpc: multiple registrations")
 	}
 
@@ -75,7 +79,7 @@ func (c *procCaller) Register(t Type, caller Caller) error {
 		return errors.New("rpc: nil caller")
 	}
 
-	c.methods[t] = caller
+	c.methods[typeValue] = caller
 	return nil
 }
 
@@ -84,10 +88,9 @@ func (c *procCaller) RegisterFunc(t Type, fn CallerFunc) error {
 }
 
 func (c *procCaller) Call(t Type, param Param, result Result) error {
-	caller, ok := c.methods[t]
-	if !ok {
-		return errors.New("rpc: caller not registered")
+	if caller, ok := c.methods[reflect.ValueOf(t)]; ok {
+		return caller.Call(param, result)
 	}
 
-	return caller.Call(param, result)
+	return errors.New("rpc: caller not registered")
 }

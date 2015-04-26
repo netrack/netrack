@@ -1,7 +1,6 @@
 package ip
 
 import (
-	//"bytes"
 	"net"
 	"sync"
 	"time"
@@ -16,9 +15,11 @@ import (
 	"github.com/netrack/openflow/ofp.v13"
 )
 
+const ARPMechanismName = "ARP#RFC826"
+
 func init() {
 	constructor := mech.NetworkMechanismConstructorFunc(NewARPMechanism)
-	mech.RegisterNetworkMechanism("ARP#RFC826", constructor)
+	mech.RegisterNetworkMechanism(ARPMechanismName, constructor)
 }
 
 type NeighEntry struct {
@@ -257,6 +258,9 @@ func (m *ARPMechanism) packetInHandler(rw of.ResponseWriter, r *of.Request) {
 		return
 	}
 
+	log.DebugLogf("arp/PACKET_IN_HANDLER",
+		"Resolve network layer address %s -> %s", pdu3.ProtoDst, lladdr)
+
 	// Build link layer PDU.
 	pdu2 = mech.LinkFrame{pdu2.SrcAddr, lladdr, mech.Proto(iana.ETHT_ARP), 0}
 
@@ -352,8 +356,9 @@ func (m *ARPMechanism) ResolveFunc(addr mech.NetworkAddr, port uint32) (mech.Lin
 	}
 
 	packetOut := ofp.PacketOut{
-		InPort:  ofp.P_CONTROLLER,
-		Actions: ofp.Actions{ofp.ActionOutput{ofp.PortNo(port), 0}},
+		BufferID: ofp.NO_BUFFER,
+		InPort:   ofp.P_CONTROLLER,
+		Actions:  ofp.Actions{ofp.ActionOutput{ofp.PortNo(port), 0}},
 	}
 
 	llbcast := lldriver.CreateAddr(l2.HWBcast)

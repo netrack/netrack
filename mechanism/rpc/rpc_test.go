@@ -29,9 +29,9 @@ func TestProcCaller(t *testing.T) {
 		return nil
 	}
 
-	caller.RegisterFunc(Type("function"), squareFunc)
+	caller.RegisterFunc(Type(squareFunc), squareFunc)
 
-	err = caller.Call(Type("function"), MakeParam(2), MakeResult(&result))
+	err = caller.Call(Type(squareFunc), MakeParam(2), MakeResult(&result))
 	if err != nil {
 		t.Fatal("Failed to execute registered function:", err)
 	}

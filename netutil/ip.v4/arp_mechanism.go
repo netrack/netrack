@@ -3,13 +3,13 @@ package ip
 import (
 	"net"
 	"sync"
-	"time"
 
 	"github.com/netrack/net/iana"
 	"github.com/netrack/net/l2"
 	"github.com/netrack/net/l3"
 	"github.com/netrack/netrack/logging"
 	"github.com/netrack/netrack/mechanism"
+	"github.com/netrack/netrack/mechanism/mechutil"
 	"github.com/netrack/netrack/mechanism/rpc"
 	"github.com/netrack/openflow"
 	"github.com/netrack/openflow/ofp.v13"
@@ -23,66 +23,60 @@ func init() {
 	mech.RegisterNetworkMechanism(ARPMechanismName, constructor)
 }
 
-type NeighEntry struct {
-	NetworkAddr mech.NetworkAddr
-	LinkAddr    mech.LinkAddr
-	Port        uint32
-	Time        time.Time
-}
-
-type NeighTable struct {
-	neighs map[string][]NeighEntry
-	lock   sync.RWMutex
-}
-
-func NewNeighTable() *NeighTable {
-	neighs := make(map[string][]NeighEntry)
-	return &NeighTable{neighs: neighs}
-}
-
-func (t *NeighTable) Populate(entry NeighEntry) error {
-	t.lock.RLock()
-
-	entries, ok := t.neighs[entry.NetworkAddr.String()]
-	if !ok {
-		defer t.lock.RUnlock()
-
-		entries = append(entries, entry)
-		t.neighs[entry.NetworkAddr.String()] = entries
-
-		return nil
-	}
-
-	// Start search of matching entry
-	//for _, e := range entries {
-	//	netwEq := bytes.Equal(e.NetworkAddr.Bytes(), entry.NetworkAddr.Bytes())
-	//	linkEq := bytes.Equal(e.LinkAddr.Bytes(), entry.LinkAddr.Bytes())
-	//	portEq := e.Port == entry.Port
-
-	//	//
-	//}
-
-	return nil
-}
-
 // ARPMechanism handles ARP requests to the networks,
 // associated with switch ports.
 type ARPMechanism struct {
 	mech.BaseNetworkMechanism
 
+	// Handle request based on cookie value.
 	cookies *of.CookieFilter
 
-	T *NeighTable
+	// ARP table
+	neighTable *mechutil.NeighTable
 
 	// Table number allocated for the mechanism.
 	tableNo int
+
+	requests map[string][]chan bool
+	lock     sync.Mutex
 }
 
 func NewARPMechanism() mech.NetworkMechanism {
 	return &ARPMechanism{
-		cookies: of.NewCookieFilter(),
-		T:       NewNeighTable(),
+		cookies:    of.NewCookieFilter(),
+		neighTable: mechutil.NewNeighTable(),
 	}
+}
+
+func (m *ARPMechanism) createRequest(nladdr mech.NetworkAddr) <-chan bool {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+
+	waitCh := make(chan bool)
+	channels := m.requests[nladdr.String()]
+
+	channels = append(channels, waitCh)
+	m.requests[nladdr.String()] = channels
+
+	return waitCh
+}
+
+func (m *ARPMechanism) releaseRequest(nladdr mech.NetworkAddr) {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+
+	// Broadcast response to waiters
+	for _, channel := range m.requests[nladdr.String()] {
+		// To prevent enclosing of the variable
+		ch := channel
+
+		go func() {
+			defer close(ch)
+			ch <- true
+		}()
+	}
+
+	delete(m.requests, nladdr.String())
 }
 
 // Enable implements Mechanism interface
@@ -310,6 +304,13 @@ func (m *ARPMechanism) arpRequestHandler(rw of.ResponseWriter, r *of.Request) {
 		return
 	}
 
+	nldriver, err := m.C.Network.Driver()
+	if err != nil {
+		log.InfoLog("arp/ARP_REQUEST_HANDLER",
+			"Network layer driver is not intialized: ", err)
+		return
+	}
+
 	// Assume, that all packets are ARP protocol messages.
 	reader := mech.MakeLinkReaderFrom(lldriver, &pdu2)
 	if _, err = of.ReadAllFrom(r.Body, &packet, reader, &pdu3); err != nil {
@@ -331,6 +332,13 @@ func (m *ARPMechanism) arpRequestHandler(rw of.ResponseWriter, r *of.Request) {
 			"Failed to resolve port '%s' hardware address: '%s'", portNo, err)
 		return
 	}
+
+	// Update neighbor table with a new lladdr
+	m.neighTable.Populate(mechutil.NeighEntry{
+		NetworkAddr: nldriver.CreateAddr(pdu3.ProtoSrc, nil),
+		LinkAddr:    pdu2.SrcAddr,
+		Port:        portNo,
+	})
 
 	log.DebugLogf("arp/ARP_REQUEST_HANDLER",
 		"Resolve network layer address %s -> %s", pdu3.ProtoDst, lladdr)
@@ -382,6 +390,13 @@ func (m *ARPMechanism) arpReplyHandler(rw of.ResponseWriter, r *of.Request) {
 		return
 	}
 
+	nldriver, err := m.C.Network.Driver()
+	if err != nil {
+		log.InfoLog("arp/ARP_REPLY_HANDLER",
+			"Network layer driver is not intialized: ", err)
+		return
+	}
+
 	// Assume, that all packets are ARP protocol messages.
 	reader := mech.MakeLinkReaderFrom(lldriver, &pdu2)
 	if _, err = of.ReadAllFrom(r.Body, &packet, reader, &pdu3); err != nil {
@@ -393,7 +408,16 @@ func (m *ARPMechanism) arpReplyHandler(rw of.ResponseWriter, r *of.Request) {
 	log.DebugLogf("arp/ARP_REPLY_HANDLER",
 		"Resolve network layer address %s -> %s", pdu3.ProtoSrc, pdu3.HWSrc)
 
-	//TODO: populate neighbor table
+	portNo := packet.Match.Field(ofp.XMT_OFB_IN_PORT).Value.UInt32()
+	nladdr := nldriver.CreateAddr(pdu3.ProtoSrc, nil)
+
+	m.neighTable.Populate(mechutil.NeighEntry{
+		NetworkAddr: nladdr,
+		LinkAddr:    pdu2.SrcAddr,
+		Port:        portNo,
+	})
+
+	m.releaseRequest(nladdr)
 }
 
 // Wrapper of ARPMechanism.ResolveFunc
@@ -417,6 +441,11 @@ func resolveFuncWrapper(param rpc.Param, result rpc.Result) (err error) {
 }
 
 func (m *ARPMechanism) ResolveFunc(addr mech.NetworkAddr, port uint32) (mech.LinkAddr, error) {
+	if neigh, ok := m.neighTable.Lookup(addr); ok {
+		// Success, table hit.
+		return neigh.LinkAddr, nil
+	}
+
 	lldriver, err := m.C.Link.Driver()
 	if err != nil {
 		log.ErrorLog("arp/RESOLVE_FUNC",
@@ -476,6 +505,9 @@ func (m *ARPMechanism) ResolveFunc(addr mech.NetworkAddr, port uint32) (mech.Lin
 		return nil, err
 	}
 
+	// Create waiter for specified network address
+	wait := m.createRequest(addr)
+
 	if err = m.C.Switch.Conn().Send(r); err != nil {
 		log.ErrorLog("arp/RESOLVE_FUNC",
 			"Failed to send an ARP request: ", err)
@@ -488,5 +520,10 @@ func (m *ARPMechanism) ResolveFunc(addr mech.NetworkAddr, port uint32) (mech.Lin
 		return nil, err
 	}
 
-	return nil, nil
+	//TODO: create timeout waiter
+	// Wait for response
+	<-wait
+
+	neigh, _ := m.neighTable.Lookup(addr)
+	return neigh.LinkAddr, nil
 }

@@ -1,0 +1,30 @@
+# Netrack configuration file
+#
+instance_id = "2ba5e6cc-c5bb-11e4-a23c-001fd08d7e6c"
+#
+# Bind OpenFlow controller
+#openflow_endpoint = "tcp://0.0.0.0:6633"
+openflow_endpoint = "tcp://172.20.20.254:6633"
+#
+# Bind HTTP server
+#api_endpoint = "tcp://0.0.0.0:8080"
+api_endpoint = "tcp://127.0.0.1:8080"
+
+# Netrack database configuration
+[database.development]
+user = "netrack-user"
+password = "netrack"
+dbname = "netrack-dev"
+sslmode = "disable"
+#
+[database.production]
+#user = "netrack-user"
+#password = "netrack"
+#dbname = "netrack"
+#sslmode = "disable"
+#
+[database.test]
+user = "netrack-user"
+password = "netrack"
+dbname = "netrack-test"
+sslmode = "disable"

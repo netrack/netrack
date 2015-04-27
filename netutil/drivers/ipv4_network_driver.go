@@ -7,7 +7,6 @@ import (
 
 	"github.com/netrack/net/iana"
 	"github.com/netrack/net/l3"
-	"github.com/netrack/netrack/logging"
 	"github.com/netrack/netrack/mechanism"
 )
 
@@ -56,8 +55,6 @@ func (d *IPv4Driver) Name() string {
 func (d *IPv4Driver) ParseAddr(s string) (mech.NetworkAddr, error) {
 	ip, net, err := net.ParseCIDR(s)
 	if err != nil {
-		log.ErrorLog("ipv4_driver/PARSE_ADDRESS",
-			"Failed to parse CIDR: ", err)
 		return nil, err
 	}
 
@@ -78,8 +75,6 @@ func (d *IPv4Driver) Addr(port uint32) (mech.NetworkAddr, error) {
 	}
 
 	text := "There is no network address associated with port: '%d'"
-	log.ErrorLog("ipv4_driver/ADDRESS", fmt.Sprintf(text, port))
-
 	return nil, fmt.Errorf(text, port)
 }
 

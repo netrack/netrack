@@ -44,6 +44,7 @@ type ARPMechanism struct {
 func NewARPMechanism() mech.NetworkMechanism {
 	return &ARPMechanism{
 		cookies:    of.NewCookieFilter(),
+		requests:   make(map[string][]chan bool),
 		neighTable: mechutil.NewNeighTable(),
 	}
 }

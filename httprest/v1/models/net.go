@@ -2,13 +2,17 @@ package models
 
 // Link is a JSON representation of link layer configuration.
 type Link struct {
-	LineProtocol nullString `json:"line_protocol"` //DOWN, UP
-
 	// Link layer encapsulation protocol (HDLC, PPP, Ethernet)
 	Encapsulation nullString `json:"encapsulation"`
 
 	// Link layer address data
 	Addr nullString `json:"address"`
+
+	// Switch port number.
+	Interface uint32 `json:"interface,omitempty"`
+
+	// Switch port name.
+	InterfaceName string `json:"interface_name,omitempty"`
 }
 
 // Network is a JSON representation of network layer configuration.

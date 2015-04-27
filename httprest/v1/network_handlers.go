@@ -37,7 +37,7 @@ func (h *NetworkHandler) Enable(c *mech.HTTPDriverContext) {
 	h.C.Mux.HandleFunc("DELETE", "/v1/datapaths/{dpid}/interfaces/{interface}/network", h.destroyHandler)
 
 	log.InfoLog("network_handlers/ENABLE_HOOK",
-		"IP address management enabled")
+		"L3 address management enabled")
 }
 
 func (h *NetworkHandler) context(rw http.ResponseWriter, r *http.Request) (*mech.MechanismContext, *mech.SwitchPort, error) {

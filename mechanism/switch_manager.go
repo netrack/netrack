@@ -64,19 +64,15 @@ func (m *SwitchManager) CreateSwitch(conn of.OFPConn) error {
 	log.DebugLog("switch_manager/CREATE_SWITCH",
 		"Switch successfully booted for ", r.Proto)
 
-	// FIXME: should be configured through REST api.
-	var lldrv LinkDriver
-	for _, driver := range linkDrivers {
-		lldrv = driver.New()
-		break
-	}
-
 	// Create mechanism managers
+	manager := BaseMechanismManager{LinkMechanisms()}
 	linkManager := &BaseLinkMechanismManager{
-		BaseMechanismManager{LinkMechanisms()}, lldrv,
+		BaseMechanismManager: manager,
+		Datapath:             sw.ID(),
+		Drivers:              LinkDrivers(),
 	}
 
-	manager := BaseMechanismManager{NetworkMechanisms()}
+	manager = BaseMechanismManager{NetworkMechanisms()}
 	networkManager := &BaseNetworkMechanismManager{
 		BaseMechanismManager: manager,
 		Datapath:             sw.ID(),
@@ -106,6 +102,11 @@ func (m *SwitchManager) CreateSwitch(conn of.OFPConn) error {
 	linkManager.Activate()
 	networkManager.Activate()
 	extensionManager.Activate()
+
+	if err = linkManager.CreateLink(); err != nil {
+		log.ErrorLog("switch_manager/CREATE_SWITCH",
+			"Failed to create link configuration: ", err)
+	}
 
 	if err = networkManager.CreateNetwork(); err != nil {
 		log.ErrorLog("switch_manager/CREATE_SWITCH",

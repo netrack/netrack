@@ -440,7 +440,7 @@ type BaseNetworkMechanismManager struct {
 	// Activated network layer driver.
 	drv NetworkDriver
 
-	// lock for drv member.
+	// Lock for drv member.
 	lock sync.RWMutex
 }
 

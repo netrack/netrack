@@ -3,6 +3,7 @@ package mech
 import (
 	"errors"
 	"io"
+	"sync"
 
 	"github.com/netrack/netrack/database"
 	"github.com/netrack/netrack/ioutil"
@@ -20,6 +21,11 @@ func init() {
 }
 
 var (
+	// ErrLinkNotRegistered is returned on
+	// accessing not intialized link driver.
+	ErrLinkNotRegistered = errors.New(
+		"LinkManager: link driver not registered")
+
 	// ErrNewtorkNotIntialized is returned on
 	// accessing not intialized link driver.
 	ErrLinkNotInitialized = errors.New(
@@ -47,11 +53,69 @@ type LinkAddr interface {
 	Bytes() []byte
 }
 
+// LinkPort represents link layer
+// port abstraction
+type LinkPort struct {
+	// Link layer address string.
+	Addr string `json:"address"`
+
+	// Switch port number
+	Port uint32 `json:"port"`
+}
+
+type LinkManagerContext struct {
+	// Datapath identifier. This one is necessary
+	// only for database storing.
+	Datapath string `json:"id"`
+
+	// Link driver name.
+	Driver string `json:"driver"`
+
+	// List of ports to modify.
+	Ports []LinkPort `json:"ports"`
+}
+
+// Port searchs for a specified port number.
+func (c *LinkManagerContext) Port(p uint32) LinkPort {
+	for _, port := range c.Ports {
+		if port.Port == p {
+			return port
+		}
+	}
+
+	return LinkPort{}
+}
+
+// SetPort updates ports with specified one.
+func (c *LinkManagerContext) SetPort(p LinkPort) {
+	for i, port := range c.Ports {
+		if port.Port == p.Port {
+			c.Ports[i] = p
+			return
+		}
+	}
+
+	c.Ports = append(c.Ports, p)
+}
+
+// DelPort remove specified port from port list.
+func (c *LinkManagerContext) DelPort(p LinkPort) {
+	for i, port := range c.Ports {
+		if port.Port == p.Port {
+			c.Ports = append(c.Ports[:i], c.Ports[i+1:]...)
+			return
+		}
+	}
+}
+
 // LinkContext wraps link layer resources and provides
 // methods for accessing other link information.
 type LinkContext struct {
 	// Link layer address.
 	Addr LinkAddr
+
+	// Switch port number.
+	Port uint32
 
 	// Link communication mode.
 	Mode LinkMode
@@ -112,6 +176,9 @@ func MakeLinkWriterTo(wf LinkFrameWriter, f *LinkFrame) io.WriterTo {
 // LinkDriver describes types that handles
 // link layer protocols.
 type LinkDriver interface {
+	// Name returns driver name.
+	Name() string
+
 	// ParseAddr returns link layer address from string.
 	ParseAddr(s string) (LinkAddr, error)
 
@@ -120,6 +187,9 @@ type LinkDriver interface {
 
 	// Addr returns link layer address of specified port.
 	Addr(portNo uint32) (LinkAddr, error)
+
+	// UpdateAddr updates switch port link layer address.
+	UpdateAddr(uint32, LinkAddr) error
 
 	// Reads link layer frames.
 	LinkFrameReader
@@ -234,6 +304,17 @@ func RegisterLinkDriver(name string, constructor LinkDriverConstructor) {
 	linkDrivers[name] = constructor
 }
 
+// LinkDriver returns map of registered network layer drivers instances.
+func LinkDrivers() map[string]LinkDriver {
+	nmap := make(map[string]LinkDriver)
+
+	for name, constructor := range linkDrivers {
+		nmap[name] = constructor.New()
+	}
+
+	return nmap
+}
+
 // LinkMechanisms retruns instances of registered mechanisms.
 func LinkMechanisms() LinkMechanismMap {
 	lmap := make(LinkMechanismMap)
@@ -281,20 +362,36 @@ type LinkMechanismManager interface {
 	// LinkDriver returns active link layer driver.
 	Driver() (LinkDriver, error)
 
+	// Context returns link context.
+	Context() (*LinkManagerContext, error)
+
+	// CreateLink allocates necessary resources and restores
+	// persisted state.
+	CreateLink() error
+
 	// UpdateLink forwards call to all registered mechanisms.
-	UpdateLink(*LinkContext) error
+	UpdateLink(*LinkManagerContext) error
 
 	// DeleteLink forwards call to all registered mechanisms.
-	DeleteLink(*LinkContext) error
+	DeleteLink(*LinkManagerContext) error
 }
 
 // BaseLinkMechcanismManager implements LinkMechanismManager.
 type BaseLinkMechanismManager struct {
+	// Datapath identifier of the service switch.
+	Datapath string
+
 	// Base mechanism manager instance.
 	BaseMechanismManager
 
-	// Link layer driver.
-	Drv LinkDriver
+	// List of available link drivers.
+	Drivers map[string]LinkDriver
+
+	// Activated link layer driver.
+	drv LinkDriver
+
+	// Lock for drv member.
+	lock sync.RWMutex
 }
 
 // Iter calls specified function for all registered link layer mechanisms.
@@ -313,7 +410,7 @@ func (m *BaseLinkMechanismManager) Iter(fn func(LinkMechanism) bool) {
 
 type linkMechanismFunc func(LinkMechanism, *LinkContext) error
 
-func (m *BaseLinkMechanismManager) do(context *LinkContext, fn linkMechanismFunc) (err error) {
+func (m *BaseLinkMechanismManager) do(fn linkMechanismFunc, context *LinkContext) (err error) {
 	m.Iter(func(mechanism LinkMechanism) bool {
 		// Forward request only to activated mechanisms.
 		if !mechanism.Activated() {
@@ -332,23 +429,255 @@ func (m *BaseLinkMechanismManager) do(context *LinkContext, fn linkMechanismFunc
 	return
 }
 
+func (m *BaseLinkMechanismManager) driver(name string) error {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+
+	// If driver already activated.
+	if m.drv != nil && m.drv.Name() == name {
+		return nil
+	}
+
+	// Search for a new driver.
+	drv, ok := m.Drivers[name]
+	if !ok {
+		log.ErrorLog("link/LINK_DRIVER",
+			"Requested link driver not found: ", name)
+		return ErrLinkNotRegistered
+	}
+
+	m.drv = drv
+	return nil
+}
+
 // Driver implements LinkMechanismManager interface.
 func (m *BaseLinkMechanismManager) Driver() (LinkDriver, error) {
-	if m.Drv == nil {
+	m.lock.RLock()
+	defer m.lock.RUnlock()
+
+	if m.drv == nil {
 		log.ErrorLog("link/LINK_DRIVER",
 			"Link layer driver is not initialized")
 		return nil, ErrLinkNotInitialized
 	}
 
-	return m.Drv, nil
+	return m.drv, nil
+}
+
+// Context returns link context of specified switch port.
+func (m *BaseLinkMechanismManager) Context() (*LinkManagerContext, error) {
+	m.lock.RLock()
+	defer m.lock.RUnlock()
+
+	if m.drv == nil {
+		log.ErrorLog("link/CONTEXT",
+			"Link layer driver is not initialized")
+		return &LinkManagerContext{}, ErrLinkNotInitialized
+	}
+
+	var context LinkManagerContext
+	err := db.Read(LinkModel, m.Datapath, &context)
+	if err != nil {
+		log.ErrorLog("link/CONTEXT",
+			"Failed to read link configuration from the database: ", err)
+		return nil, err
+	}
+
+	return &context, nil
+}
+
+func (m *BaseLinkMechanismManager) CreateLink() error {
+	var context LinkManagerContext
+
+	err := db.Transaction(func(p db.ModelPersister) error {
+		// Lock to make consistent configuration
+		err := p.Lock(LinkModel, m.Datapath, &context)
+
+		// Create a new record in a dabase for a new switch
+		if err != nil {
+			log.InfoLog("link/CREATE_LINK",
+				"Creating link configuration for: ", m.Datapath)
+
+			err = p.Create(LinkModel, &LinkManagerContext{Datapath: m.Datapath})
+			if err != nil {
+				log.ErrorLog("link/CREATE_LINK",
+					"Failed to create link configuration: ", err)
+			}
+
+			return err
+		}
+
+		log.InfoLog("link/CREATE_LINK",
+			"Restoring link configuration for: ", m.Datapath)
+
+		// Nothing to do.
+		if context.Driver == "" {
+			return nil
+		}
+
+		// Restore state of the persited switch
+		if err := m.driver(context.Driver); err != nil {
+			return err
+		}
+
+		m.lock.RLock()
+		defer m.lock.RUnlock()
+
+		for _, port := range context.Ports {
+			addr, err := m.drv.ParseAddr(port.Addr)
+			if err != nil {
+				log.ErrorLog("link/UPDATE_LINK",
+					"Failed to parse link layer address: ", err)
+				return err
+			}
+
+			if err = m.drv.UpdateAddr(port.Port, addr); err != nil {
+				log.ErrorLog("link/UPDATE_LINK",
+					"Failed to update port link layer address: ", err)
+				return err
+			}
+
+			err = m.do(LinkMechanism.UpdateLink, &LinkContext{
+				Addr: addr,
+				Port: port.Port,
+			})
+
+			if err != nil {
+				log.ErrorLog("link/CREATE_LINK",
+					"Failed to create link for port: ", port.Port)
+				return err
+			}
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		log.ErrorLog("link/CREATE_LINK",
+			"Failed to create link records in a database: ", err)
+	}
+
+	return err
 }
 
 // UpdateLink calls corresponding method for activated mechanisms.
-func (m *BaseLinkMechanismManager) UpdateLink(context *LinkContext) (err error) {
-	return m.do(context, LinkMechanism.UpdateLink)
+func (m *BaseLinkMechanismManager) UpdateLink(context *LinkManagerContext) (err error) {
+	if err = m.driver(context.Driver); err != nil {
+		return err
+	}
+
+	m.lock.RLock()
+	defer m.lock.RUnlock()
+
+	ports := context.Ports
+
+	for _, port := range ports {
+		addr, err := m.drv.ParseAddr(port.Addr)
+		if err != nil {
+			log.ErrorLog("link/UPDATE_LINK",
+				"Failed to parse link layer address: ", err)
+			return err
+		}
+
+		if err = m.drv.UpdateAddr(port.Port, addr); err != nil {
+			log.ErrorLog("link/UPDATE_LINK",
+				"Failed to update port link layer address: ", err)
+			return err
+		}
+
+		err = m.do(LinkMechanism.UpdateLink, &LinkContext{
+			Addr: addr,
+			Port: port.Port,
+		})
+
+		if err != nil {
+			log.ErrorLog("link/UPDATE_LINK",
+				"Failed to update link configuration: ", err)
+			return err
+		}
+	}
+
+	// Update link configuration in a database.
+	err = db.Transaction(func(p db.ModelPersister) error {
+		var oldcontext LinkManagerContext
+
+		if err = db.Lock(LinkModel, m.Datapath, &oldcontext); err != nil {
+			log.ErrorLog("link/UPDATE_LINK_DB_LOCK",
+				"Failed to lock record: ", err)
+			return err
+		}
+
+		// Save previous port configuration
+		context.Ports = oldcontext.Ports
+
+		// Update port configuration
+		for _, port := range ports {
+			context.SetPort(port)
+		}
+
+		if err = db.Update(LinkModel, m.Datapath, context); err != nil {
+			log.ErrorLog("link/UPDATE_LINK_DB_UPDATE",
+				"Failed to update record: ", err)
+		}
+
+		return err
+	})
+
+	if err != nil {
+		log.ErrorLog("link/UPDATE_LINK",
+			"Failed to create link records in a database: ", err)
+	}
+
+	return err
 }
 
 // DeleteLink calls corresponding method for activated mechanisms.
-func (m *BaseLinkMechanismManager) DeleteLink(context *LinkContext) (err error) {
-	return m.do(context, LinkMechanism.DeleteLink)
+func (m *BaseLinkMechanismManager) DeleteLink(context *LinkManagerContext) (err error) {
+	if err = m.driver(context.Driver); err != nil {
+		return err
+	}
+
+	ports := context.Ports
+
+	for _, port := range ports {
+		err = m.do(LinkMechanism.DeleteLink, &LinkContext{
+			Port: port.Port,
+		})
+
+		if err != nil {
+			log.ErrorLog("link/DELETE_LINK",
+				"Failed to delete link configuration: ", err)
+			return err
+		}
+	}
+
+	//TODO: delete address from the driver
+
+	// Update link configuration in a database.
+	err = db.Transaction(func(p db.ModelPersister) error {
+		if err = db.Lock(LinkModel, m.Datapath, context); err != nil {
+			log.ErrorLog("link/DELETE_LINK_DB_LOCK",
+				"Failed to lock record: ", err)
+			return err
+		}
+
+		// Update port configuration
+		for _, port := range ports {
+			context.DelPort(port)
+		}
+
+		if err = db.Update(LinkModel, m.Datapath, context); err != nil {
+			log.ErrorLog("link/DELETE_LINK_DB_DELETE",
+				"Failed to update record: ", err)
+		}
+
+		return err
+	})
+
+	if err != nil {
+		log.ErrorLog("link/DELETE_LINK",
+			"Failed to delete link records from a database: ", err)
+	}
+
+	return err
 }

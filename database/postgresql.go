@@ -93,7 +93,7 @@ func prepareStmts(db *sql.DB) (Statementer, error) {
 
 // TruncateTables erases data from tables.
 func TruncateTables(db *sql.DB) {
-	db.Exec("DELETE FROM fakes")
-	db.Exec("DELETE FROM links")
-	db.Exec("DELETE FROM networks")
+	for model := range models {
+		db.Exec(fmt.Sprintf("DELETE FROM %s", string(model)))
+	}
 }

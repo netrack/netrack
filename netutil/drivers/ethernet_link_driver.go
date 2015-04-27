@@ -3,6 +3,7 @@ package drivers
 import (
 	"fmt"
 	"io"
+	"net"
 	"strings"
 
 	"github.com/netrack/net/iana"
@@ -24,11 +25,11 @@ func (a EthernetAddr) String() string {
 	addr := fmt.Sprintf("%x", []byte(a))
 	var parts []string
 
-	for i := 0; i < len(addr); i += 2 {
-		parts = append(parts, string(addr[i:i+2]))
+	for i := 0; i < len(addr); i += 4 {
+		parts = append(parts, string(addr[i:i+4]))
 	}
 
-	return strings.Join(parts, ":")
+	return strings.Join(parts, ".")
 }
 
 func (a EthernetAddr) Bytes() []byte {
@@ -37,10 +38,19 @@ func (a EthernetAddr) Bytes() []byte {
 
 type EthernetLinkDriver struct {
 	mech.BaseLinkDriver
+
+	// Mapping of link addresses to switch ports.
+	addrs map[uint32]mech.LinkAddr
 }
 
 func NewEthernetLinkDriver() mech.LinkDriver {
-	return &EthernetLinkDriver{}
+	return &EthernetLinkDriver{
+		addrs: make(map[uint32]mech.LinkAddr),
+	}
+}
+
+func (d *EthernetLinkDriver) Name() string {
+	return EthernetDriverName
 }
 
 func (d *EthernetLinkDriver) CreateAddr(addr []byte) mech.LinkAddr {
@@ -48,12 +58,25 @@ func (d *EthernetLinkDriver) CreateAddr(addr []byte) mech.LinkAddr {
 }
 
 func (d *EthernetLinkDriver) ParseAddr(s string) (mech.LinkAddr, error) {
-	return nil, nil
+	hwaddr, err := net.ParseMAC(s)
+	if err != nil {
+	}
+
+	return EthernetAddr(hwaddr), nil
 }
 
-func (d *EthernetLinkDriver) Addr(portNo uint32) (mech.LinkAddr, error) {
-	addr := append([]byte{0x00, 0x50, 0x56, 0x00, 0x00}, byte(portNo)&0xff)
-	return EthernetAddr(addr), nil
+func (d *EthernetLinkDriver) UpdateAddr(port uint32, addr mech.LinkAddr) error {
+	d.addrs[port] = addr
+	return nil
+}
+
+func (d *EthernetLinkDriver) Addr(port uint32) (mech.LinkAddr, error) {
+	if addr, ok := d.addrs[port]; ok {
+		return addr, nil
+	}
+
+	text := "There is no link address associated with port: '%d'"
+	return nil, fmt.Errorf(text, port)
 }
 
 func (d *EthernetLinkDriver) ReadFrame(r io.Reader) (*mech.LinkFrame, error) {

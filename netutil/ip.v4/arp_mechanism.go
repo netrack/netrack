@@ -13,6 +13,7 @@ import (
 	"github.com/netrack/netrack/mechanism/rpc"
 	"github.com/netrack/openflow"
 	"github.com/netrack/openflow/ofp.v13"
+	"github.com/netrack/openflow/ofp.v13/ofputil"
 )
 
 const ARPMechanismName = "ARP#RFC826"
@@ -69,6 +70,8 @@ func (t *NeighTable) Populate(entry NeighEntry) error {
 type ARPMechanism struct {
 	mech.BaseNetworkMechanism
 
+	cookies *of.CookieFilter
+
 	T *NeighTable
 
 	// Table number allocated for the mechanism.
@@ -76,7 +79,10 @@ type ARPMechanism struct {
 }
 
 func NewARPMechanism() mech.NetworkMechanism {
-	return &ARPMechanism{T: NewNeighTable()}
+	return &ARPMechanism{
+		cookies: of.NewCookieFilter(),
+		T:       NewNeighTable(),
+	}
 }
 
 // Enable implements Mechanism interface
@@ -95,6 +101,9 @@ func (m *ARPMechanism) Enable(c *mech.MechanismContext) {
 // Activate implements Mechanism interface
 func (m *ARPMechanism) Activate() {
 	m.BaseMechanism.Activate()
+
+	// Operate on PacketIn messages
+	m.cookies.Baker = ofputil.PacketInBaker()
 
 	// Allocate table for handling arp protocol.
 	tableNo, err := m.C.Switch.AllocateTable()
@@ -168,13 +177,28 @@ func (m *ARPMechanism) Disable() {
 	m.BaseMechanism.Disable()
 }
 
-func (m *ARPMechanism) UpdateNetwork(c *mech.NetworkContext) error {
+func (m *ARPMechanism) UpdateNetwork(context *mech.NetworkContext) error {
+	lldriver, err := m.C.Link.Driver()
+	if err != nil {
+		log.ErrorLog("arp/UPDATE_NETWORK_LLDRIVER",
+			"Network layer driver is not intialized: ", err)
+		return err
+	}
+
+	// Get link layer address associated with ingress port.
+	lladdr, err := lldriver.Addr(context.Port)
+	if err != nil {
+		log.ErrorLogf("arp/UPDATE_NETWORK_LLADDR",
+			"Failed to resolve port '%s' hardware address: '%s'", context.Port, err)
+		return err
+	}
+
 	// Match broadcast ARP requests to resolve updated address.
 	match := ofp.Match{ofp.MT_OXM, []ofp.OXM{
 		ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_ETH_TYPE, of.Bytes(iana.ETHT_ARP), nil},
 		ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_ARP_OP, of.Bytes(l3.ARPOT_REQUEST), nil},
 		ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_ARP_THA, l2.HWUnspec, nil},
-		ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_ARP_TPA, c.Addr.Bytes(), c.Addr.Mask()},
+		ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_ARP_TPA, context.Addr.Bytes(), context.Addr.Mask()},
 	}}
 
 	// Send all such packets to controller
@@ -188,30 +212,78 @@ func (m *ARPMechanism) UpdateNetwork(c *mech.NetworkContext) error {
 		ofp.IT_APPLY_ACTIONS, actions,
 	}}
 
-	// Insert flow into ARP-allocated flow table.
-	r, err := of.NewRequest(of.T_FLOW_MOD, of.NewReader(&ofp.FlowMod{
+	flowMod := ofp.FlowMod{
 		Command:      ofp.FC_ADD,
 		TableID:      ofp.Table(m.tableNo),
 		BufferID:     ofp.NO_BUFFER,
 		Priority:     2, // Use non-zero priority
 		Match:        match,
 		Instructions: instructions,
-	}))
+	}
 
+	// Assign cookie to FlowMod message, and
+	// redirect such requests to arpRequestHandler
+	m.cookies.FilterFunc(&flowMod, m.arpRequestHandler)
+
+	// Insert flow into ARP-allocated flow table.
+	r, err := of.NewRequest(of.T_FLOW_MOD, of.NewReader(&flowMod))
 	if err != nil {
-		log.ErrorLog("arp/UPDATE_NETWORK",
+		log.ErrorLog("arp/UPDATE_NETWORK_ARP_REQUEST",
 			"Failed to create ofp_flow_mod request: ", err)
 		return err
 	}
 
 	if err = m.C.Switch.Conn().Send(r); err != nil {
-		log.ErrorLog("arp/UPDATE_NETWORK",
+		log.ErrorLog("arp/UPDATE_NETWORK_ARP_REQUEST",
+			"Failed to send request: ", err)
+		return err
+	}
+
+	// Match direct messages to receive ARP responses.
+	match = ofp.Match{ofp.MT_OXM, []ofp.OXM{
+		ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_ETH_TYPE, of.Bytes(iana.ETHT_ARP), nil},
+		ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_ETH_DST, lladdr.Bytes(), nil},
+		ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_ARP_OP, of.Bytes(l3.ARPOT_REPLY), nil},
+		ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_ARP_TPA, context.Addr.Bytes(), context.Addr.Mask()},
+	}}
+
+	// Send all such packets to controller
+	actions = ofp.Actions{
+		ofp.ActionOutput{ofp.PortNo(ofp.P_CONTROLLER), ofp.CML_NO_BUFFER},
+	}
+
+	// Apply actions to packet
+	instructions = ofp.Instructions{ofp.InstructionActions{
+		ofp.IT_APPLY_ACTIONS, actions,
+	}}
+
+	flowMod = ofp.FlowMod{
+		Command:      ofp.FC_ADD,
+		TableID:      ofp.Table(m.tableNo),
+		BufferID:     ofp.NO_BUFFER,
+		Priority:     2, // Use non-zero priority
+		Match:        match,
+		Instructions: instructions,
+	}
+
+	m.cookies.FilterFunc(&flowMod, m.arpReplyHandler)
+
+	// Insert flow into ARP-allocated flow table.
+	r, err = of.NewRequest(of.T_FLOW_MOD, of.NewReader(&flowMod))
+	if err != nil {
+		log.ErrorLog("arp/UPDATE_NETWORK_ARP_REPLY",
+			"Failed to create ofp_flow_mod request: ", err)
+		return err
+	}
+
+	if err = m.C.Switch.Conn().Send(r); err != nil {
+		log.ErrorLog("arp/UPDATE_NETWORK_ARP_REPLY",
 			"Failed to send request: ", err)
 		return err
 	}
 
 	if err = m.C.Switch.Conn().Flush(); err != nil {
-		log.ErrorLog("arp/UPDATE_NETWORK",
+		log.ErrorLog("arp/UPDATE_NETWORK_FLUSH",
 			"Failed to flush requests: ", err)
 	}
 
@@ -219,15 +291,21 @@ func (m *ARPMechanism) UpdateNetwork(c *mech.NetworkContext) error {
 }
 
 func (m *ARPMechanism) packetInHandler(rw of.ResponseWriter, r *of.Request) {
+	// Serve message based on PacketIn cookies.
+	m.cookies.Serve(rw, r)
+}
+
+func (m *ARPMechanism) arpRequestHandler(rw of.ResponseWriter, r *of.Request) {
 	var packet ofp.PacketIn
 	var pdu2 mech.LinkFrame
 	var pdu3 l3.ARP
 
-	var err error
+	log.InfoLog("arp/ARP_REQUEST_HANDLER",
+		"Got ARP requets handler")
 
 	lldriver, err := m.C.Link.Driver()
 	if err != nil {
-		log.InfoLog("arp/PACKET_IN_HANDLER",
+		log.InfoLog("arp/ARP_REQUEST_HANDLER",
 			"Link layer driver is not intialized: ", err)
 		return
 	}
@@ -235,16 +313,12 @@ func (m *ARPMechanism) packetInHandler(rw of.ResponseWriter, r *of.Request) {
 	// Assume, that all packets are ARP protocol messages.
 	reader := mech.MakeLinkReaderFrom(lldriver, &pdu2)
 	if _, err = of.ReadAllFrom(r.Body, &packet, reader, &pdu3); err != nil {
-		log.ErrorLog("arp/PACKET_IN_HANDLER",
+		log.ErrorLog("arp/ARP_REQUEST_HANDLER",
 			"Failed to read packet: ", err)
 		return
 	}
 
-	if int(packet.TableID) != m.tableNo {
-		return
-	}
-
-	log.DebugLog("arp/PACKET_IN_HANDLER",
+	log.DebugLog("arp/ARP_REQUEST_HANDLER",
 		"Got ARP request to resolve: ", pdu3.ProtoDst)
 
 	// Use that port as egress to send response.
@@ -253,12 +327,12 @@ func (m *ARPMechanism) packetInHandler(rw of.ResponseWriter, r *of.Request) {
 	// Get link layer address associated with egress port.
 	lladdr, err := lldriver.Addr(portNo)
 	if err != nil {
-		log.ErrorLogf("arp/PACKET_IN_HANDLER",
+		log.ErrorLogf("arp/ARP_REQUEST_HANDLER",
 			"Failed to resolve port '%s' hardware address: '%s'", portNo, err)
 		return
 	}
 
-	log.DebugLogf("arp/PACKET_IN_HANDLER",
+	log.DebugLogf("arp/ARP_REQUEST_HANDLER",
 		"Resolve network layer address %s -> %s", pdu3.ProtoDst, lladdr)
 
 	// Build link layer PDU.
@@ -291,6 +365,35 @@ func (m *ARPMechanism) packetInHandler(rw of.ResponseWriter, r *of.Request) {
 		log.ErrorLog("arp/ARP_REQUEST_SEND_ERR",
 			"Failed to send ARP response: ", err)
 	}
+}
+
+func (m *ARPMechanism) arpReplyHandler(rw of.ResponseWriter, r *of.Request) {
+	var packet ofp.PacketIn
+	var pdu2 mech.LinkFrame
+	var pdu3 l3.ARP
+
+	log.InfoLog("arp/ARP_REPLY_HANDLER",
+		"Got ARP reply message")
+
+	lldriver, err := m.C.Link.Driver()
+	if err != nil {
+		log.InfoLog("arp/ARP_REPLY_HANDLER",
+			"Link layer driver is not intialized: ", err)
+		return
+	}
+
+	// Assume, that all packets are ARP protocol messages.
+	reader := mech.MakeLinkReaderFrom(lldriver, &pdu2)
+	if _, err = of.ReadAllFrom(r.Body, &packet, reader, &pdu3); err != nil {
+		log.ErrorLog("arp/ARP_REPLY_HANDLER",
+			"Failed to read packet: ", err)
+		return
+	}
+
+	log.DebugLogf("arp/ARP_REPLY_HANDLER",
+		"Resolve network layer address %s -> %s", pdu3.ProtoSrc, pdu3.HWSrc)
+
+	//TODO: populate neighbor table
 }
 
 // Wrapper of ARPMechanism.ResolveFunc

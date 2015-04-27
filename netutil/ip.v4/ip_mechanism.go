@@ -6,6 +6,7 @@ import (
 	"github.com/netrack/netrack/mechanism"
 	"github.com/netrack/openflow"
 	"github.com/netrack/openflow/ofp.v13"
+	"github.com/netrack/openflow/ofp.v13/ofputil"
 )
 
 const IPv4MechanismName = "IPv4#RFC791"
@@ -18,6 +19,8 @@ func init() {
 type IPMechanism struct {
 	mech.BaseNetworkMechanism
 
+	cookies *of.CookieFilter
+
 	// IPv4 routing table instance.
 	T RoutingTable
 
@@ -26,7 +29,9 @@ type IPMechanism struct {
 }
 
 func NewIPMechanism() mech.NetworkMechanism {
-	return &IPMechanism{}
+	return &IPMechanism{
+		cookies: of.NewCookieFilter(),
+	}
 }
 
 // Enable implements Mechanism interface
@@ -43,6 +48,9 @@ func (m *IPMechanism) Enable(c *mech.MechanismContext) {
 // Activate implements Mechanism interface
 func (m *IPMechanism) Activate() {
 	m.BaseNetworkMechanism.Activate()
+
+	// Operate on PacketIn messages
+	m.cookies.Baker = ofputil.PacketInBaker()
 
 	// Allocate table for handling ipv4 protocol.
 	tableNo, err := m.C.Switch.AllocateTable()
@@ -124,21 +132,6 @@ func (m *IPMechanism) Disable() {
 }
 
 func (m *IPMechanism) UpdateNetwork(context *mech.NetworkContext) error {
-	//lldriver, err := m.C.Link.Driver()
-	//if err != nil {
-	//log.ErrorLog("ip/UPDATE_NETWORK",
-	//"Network layer driver is not intialized: ", err)
-	//return err
-	//}
-
-	// Get link layer address associated with ingress port.
-	//lladdr, err := lldriver.Addr(context.Port)
-	//if err != nil {
-	//log.ErrorLogf("ip/UPDATE_NETWORK",
-	//"Failed to resolve port '%s' hardware address: '%s'", context.Port, err)
-	//return err
-	//}
-
 	// Match IPv4 packets of specified subnetwork.
 	match := ofp.Match{ofp.MT_OXM, []ofp.OXM{
 		ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_ETH_TYPE, of.Bytes(iana.ETHT_IPV4), nil},
@@ -154,15 +147,19 @@ func (m *IPMechanism) UpdateNetwork(context *mech.NetworkContext) error {
 		},
 	}}
 
-	r, err := of.NewRequest(of.T_FLOW_MOD, of.NewReader(&ofp.FlowMod{
+	flowMod := ofp.FlowMod{
 		Command:      ofp.FC_ADD,
 		TableID:      ofp.Table(m.tableNo),
 		BufferID:     ofp.NO_BUFFER,
 		Priority:     10,
 		Match:        match,
 		Instructions: instruction,
-	}))
+	}
 
+	// Move ip packets to ipPacketHandler
+	m.cookies.FilterFunc(&flowMod, m.ipPacketHandler)
+
+	r, err := of.NewRequest(of.T_FLOW_MOD, of.NewReader(&flowMod))
 	if err != nil {
 		log.ErrorLog("ip/UPDATE_NETWORK",
 			"Failed to create new ofp_flow_mod request: ", err)
@@ -188,21 +185,24 @@ func (m *IPMechanism) DeleteNetwork(context *mech.NetworkContext) error {
 }
 
 func (m *IPMechanism) packetInHandler(rw of.ResponseWriter, r *of.Request) {
+	m.cookies.Serve(rw, r)
+}
+
+func (m *IPMechanism) ipPacketHandler(rw of.ResponseWriter, r *of.Request) {
 	var packet ofp.PacketIn
 	var pdu2 mech.LinkFrame
 	var pdu3 mech.NetworkPacket
 
-	// TODO: differ ofp_packet_in messages by cookies.
 	lldriver, err := m.C.Link.Driver()
 	if err != nil {
-		log.InfoLog("ip/PACKET_IN_HANDLER",
+		log.InfoLog("ip/IP_PACKET_HANDLER_LLDRIVER",
 			"Link layer driver is not initialized: ", err)
 		return
 	}
 
 	nldriver, err := m.C.Network.Driver()
 	if err != nil {
-		log.InfoLog("ip/PACKET_IN_HANDLER",
+		log.InfoLog("ip/IP_PACKET_HANDLER",
 			"Network layer driver is not intialized: ", err)
 		return
 	}
@@ -211,7 +211,7 @@ func (m *IPMechanism) packetInHandler(rw of.ResponseWriter, r *of.Request) {
 	nlreader := mech.MakeNetworkReaderFrom(nldriver, &pdu3)
 
 	if _, err = of.ReadAllFrom(r.Body, &packet, llreader, nlreader); err != nil {
-		log.ErrorLog("ip/PACKET_IN_HANDLER",
+		log.ErrorLog("ip/IP_PACKET_HANDLER",
 			"Failed to read packet: ", err)
 		return
 	}
@@ -222,20 +222,20 @@ func (m *IPMechanism) packetInHandler(rw of.ResponseWriter, r *of.Request) {
 
 	netwMech, err := m.C.Network.Mechanism(ARPMechanismName)
 	if err != nil {
-		log.ErrorLog("ip/PACKET_IN_HANDLER",
+		log.ErrorLog("ip/IP_PACKET_HANDLER",
 			"ARP network mechanism is not found: ", err)
 	}
 
 	arpMech, ok := netwMech.(*ARPMechanism)
 	if !ok {
-		log.ErrorLog("ip/PACKET_IN_HANDLER",
+		log.ErrorLog("ip/IP_PACKET_HANDLER",
 			"Failed to find ARP mechanism")
 		return
 	}
 
 	_, err = arpMech.ResolveFunc(pdu3.DstAddr, uint32(2))
 	if err != nil {
-		log.ErrorLog("ip/PACKET_IN_HANDLER",
+		log.ErrorLog("ip/IP_PACKET_HANDLER",
 			"Failed to resolve hardware address: ", err)
 	}
 

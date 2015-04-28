@@ -37,6 +37,9 @@ type NetworkAddr interface {
 	// String returns string form of address.
 	String() string
 
+	// Contains reports whether the network includes address.
+	Contains(NetworkAddr) bool
+
 	// Bytes returns raw address representation.
 	Bytes() []byte
 

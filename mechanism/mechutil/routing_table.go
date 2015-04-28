@@ -1,10 +1,12 @@
-package ip
+package mechutil
 
 import (
 	"errors"
-	"net"
 	"sort"
 	"sync"
+	"time"
+
+	"github.com/netrack/netrack/mechanism"
 )
 
 const (
@@ -18,6 +20,7 @@ const (
 
 var distanceMap = map[RouteType]int{
 	StaticRoute:    0,
+	LocalRoute:     0,
 	ConnectedRoute: 1,
 	EIGRPRoute:     90,
 	OSPFRoute:      110,
@@ -27,7 +30,7 @@ var distanceMap = map[RouteType]int{
 func routeToDistance(r RouteType) (int, error) {
 	distance, ok := distanceMap[r]
 	if !ok {
-		return 0, errors.New("ip: unsupported route type")
+		return 0, errors.New("route: unsupported route type")
 	}
 
 	return distance, nil
@@ -36,13 +39,13 @@ func routeToDistance(r RouteType) (int, error) {
 type RouteType string
 
 type RouteEntry struct {
-	Type     RouteType
-	Net      net.IPNet
-	NextHop  net.IP
-	Distance int
-	//Metric
-	//Timestamp
-	//Port ofp.PortNo
+	Type      RouteType
+	Network   mech.NetworkAddr
+	NextHop   mech.NetworkAddr
+	Distance  int
+	Metric    int
+	Timestamp time.Time
+	Port      uint32
 }
 
 type RoutingTable struct {
@@ -50,9 +53,11 @@ type RoutingTable struct {
 	lock   sync.RWMutex
 }
 
-func (t *RoutingTable) Append(entry RouteEntry) error {
+func (t *RoutingTable) Populate(entry RouteEntry) error {
 	t.lock.Lock()
 	defer t.lock.Unlock()
+
+	entry.Timestamp = time.Now()
 
 	t.routes = append(t.routes, entry)
 	sort.Sort(t)
@@ -60,8 +65,17 @@ func (t *RoutingTable) Append(entry RouteEntry) error {
 	return nil
 }
 
-func (t *RoutingTable) Lookup(ipaddr net.IP) (net.IPNet, error) {
-	return net.IPNet{}, nil
+func (t *RoutingTable) Lookup(nladdr mech.NetworkAddr) (RouteEntry, bool) {
+	t.lock.RLock()
+	defer t.lock.RUnlock()
+
+	for _, entry := range t.routes {
+		if entry.Network.Contains(nladdr) {
+			return entry, true
+		}
+	}
+
+	return RouteEntry{}, false
 }
 
 func (t *RoutingTable) Len() int {
@@ -69,13 +83,21 @@ func (t *RoutingTable) Len() int {
 }
 
 func (t *RoutingTable) Less(i, j int) bool {
-	if t.routes[i].Distance < t.routes[j].Distance {
+	routei, routej := t.routes[i], t.routes[j]
+
+	// That is dumb, but okay for the begining
+	if routej.Network.Contains(routei.Network) {
+		return true
+	}
+
+	if routei.Distance < routej.Distance {
 		return true
 	}
 
 	// Compare metric
-	//if r.routes[i].Metric < r.routes[j].Metric {
-	//}
+	if routei.Metric < routej.Metric {
+		return true
+	}
 
 	return false
 }

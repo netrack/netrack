@@ -29,3 +29,7 @@ type Network struct {
 	// Switch port name.
 	InterfaceName string `json:"interface_name,omitempty"`
 }
+
+type Route struct {
+	Type string `json:"type"`
+}

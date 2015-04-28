@@ -66,6 +66,11 @@ func (m *ARPMechanism) releaseRequest(nladdr mech.NetworkAddr) {
 	m.lock.Lock()
 	defer m.lock.Unlock()
 
+	log.DebugLog("arp/RELEASE_REQUEST",
+		"Release requests for: ", nladdr)
+
+	log.DebugLog("arp/RELEASE_REQUEST", m.requests)
+
 	// Broadcast response to waiters
 	for _, channel := range m.requests[nladdr.String()] {
 		// To prevent enclosing of the variable

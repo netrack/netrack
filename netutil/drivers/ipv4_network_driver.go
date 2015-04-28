@@ -12,6 +12,8 @@ import (
 
 const IPv4DriverName = "IPv4#RFC791"
 
+var IPv4HostMask = net.IPMask{255, 255, 255, 255}
+
 func init() {
 	constructor := mech.NetworkDriverConstructorFunc(NewIPv4Driver)
 	mech.RegisterNetworkDriver(IPv4DriverName, constructor)
@@ -25,6 +27,11 @@ type IPv4Addr struct {
 func (a *IPv4Addr) String() string {
 	ones, _ := a.mask.Size()
 	return fmt.Sprintf("%s/%d", a.ip, ones)
+}
+
+func (s *IPv4Addr) Contains(nladdr mech.NetworkAddr) bool {
+	network := net.IPNet{s.ip, s.mask}
+	return network.Contains(net.IP(nladdr.Bytes()))
 }
 
 func (a *IPv4Addr) Bytes() []byte {
@@ -63,7 +70,7 @@ func (d *IPv4Driver) ParseAddr(s string) (mech.NetworkAddr, error) {
 
 func (d *IPv4Driver) CreateAddr(addr []byte, mask []byte) mech.NetworkAddr {
 	if mask == nil {
-		mask = net.IPv4Mask(255, 255, 255, 255)
+		mask = IPv4HostMask
 	}
 
 	return &IPv4Addr{addr, mask}
@@ -92,8 +99,8 @@ func (d *IPv4Driver) ReadPacket(r io.Reader) (*mech.NetworkPacket, error) {
 	}
 
 	packet := &mech.NetworkPacket{
-		DstAddr:    &IPv4Addr{ipv4.Dst, nil},
-		SrcAddr:    &IPv4Addr{ipv4.Src, nil},
+		DstAddr:    &IPv4Addr{ipv4.Dst, IPv4HostMask},
+		SrcAddr:    &IPv4Addr{ipv4.Src, IPv4HostMask},
 		Proto:      mech.Proto(ipv4.Proto),
 		Len:        int64(l3.IPv4HeaderLen),
 		ContentLen: int64(ipv4.Len - l3.IPv4HeaderLen),

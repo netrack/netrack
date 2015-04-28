@@ -36,25 +36,11 @@ func (m *ICMPMechanism) Enable(c *mech.MechanismContext) {
 }
 
 func (m *ICMPMechanism) UpdateNetwork(context *mech.NetworkContext) error {
-	lldriver, err := m.C.Link.Driver()
-	if err != nil {
-		log.ErrorLog("icmp/UPDATE_NETWORK",
-			"Link layer driver is not intialized: ", err)
-		return err
-	}
-
-	// Get link layer address associated with ingress port.
-	lladdr, err := lldriver.Addr(context.Port)
-	if err != nil {
-		log.ErrorLogf("icmp/UPDATE_NETWORK",
-			"Failed to resolve port '%s' hardware address: '%s'", context.Port, err)
-		return err
-	}
-
 	// Match ICMP echo-request messages to created network address.
 	match := ofp.Match{ofp.MT_OXM, []ofp.OXM{
 		ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_ETH_TYPE, of.Bytes(iana.ETHT_IPV4), nil},
-		ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_ETH_DST, lladdr.Bytes(), nil},
+		//TODO: make it available for all link layer addresses.
+		//ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_ETH_DST, lladdr.Bytes(), nil},
 		ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_IPV4_DST, context.Addr.Bytes(), nil},
 		ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_IP_PROTO, of.Bytes(iana.IP_PROTO_ICMP), nil},
 		ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_ICMPV4_TYPE, of.Bytes(l3.ICMPT_ECHO_REQUEST), nil},
@@ -71,7 +57,7 @@ func (m *ICMPMechanism) UpdateNetwork(context *mech.NetworkContext) error {
 		Command:      ofp.FC_ADD,
 		TableID:      ofp.Table(m.tableNo),
 		BufferID:     ofp.NO_BUFFER,
-		Priority:     2, // Use non-zero priority
+		Priority:     30, // Use non-zero priority
 		Match:        match,
 		Instructions: instructions,
 	}))

@@ -30,6 +30,20 @@ type Network struct {
 	InterfaceName string `json:"interface_name,omitempty"`
 }
 
+// Route is a JSON representation of route configuration.
 type Route struct {
-	Type string `json:"type"`
+	// Route type (static, local, rip)
+	Type string `json:"type,omitempty"`
+
+	// Next hop address
+	NextHop string `json:"via"`
+
+	// Network in a CIDR notation
+	Network string `json:"network"`
+
+	// Switch port number.
+	Interface uint32 `json:"interface,omitempty"`
+
+	// Switch port name.
+	InterfaceName string `json:"interface_name"`
 }

@@ -31,13 +31,13 @@ func NewNetworkHandler() mech.HTTPDriver {
 func (h *NetworkHandler) Enable(c *mech.HTTPDriverContext) {
 	h.BaseHTTPDriver.Enable(c)
 
-	h.C.Mux.HandleFunc("GET", "/v1/datapaths/{dpid}/interfaces/network", h.indexHandler)
+	h.C.Mux.HandleFunc("GET", "/v1/datapaths/{dpid}/interfaces/networks", h.indexHandler)
 	h.C.Mux.HandleFunc("GET", "/v1/datapaths/{dpid}/interfaces/{interface}/network", h.showHandler)
 	h.C.Mux.HandleFunc("PUT", "/v1/datapaths/{dpid}/interfaces/{interface}/network", h.createHandler)
 	h.C.Mux.HandleFunc("DELETE", "/v1/datapaths/{dpid}/interfaces/{interface}/network", h.destroyHandler)
 
 	log.InfoLog("network_handlers/ENABLE_HOOK",
-		"L3 address management enabled")
+		"Network layer handlers enabled")
 }
 
 func (h *NetworkHandler) context(rw http.ResponseWriter, r *http.Request) (*mech.MechanismContext, *mech.SwitchPort, error) {
@@ -102,9 +102,9 @@ func (h *NetworkHandler) indexHandler(rw http.ResponseWriter, r *http.Request) {
 	}
 
 	var networks []models.Network
+	var network mech.NetworkManagerContext
 
-	network, err := context.Network.Context()
-	if err != nil {
+	if err = context.Network.Context(&network); err != nil {
 		log.ErrorLog("network_handlers/INDEX_HANDLER",
 			"Failed to retrieve network context: ", err)
 
@@ -182,7 +182,8 @@ func (h *NetworkHandler) showHandler(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	network, _ := context.Network.Context()
+	var network mech.NetworkManagerContext
+	context.Network.Context(&network)
 	networkPort := network.Port(switchPort.Number)
 
 	// Return interface network data.

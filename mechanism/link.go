@@ -356,14 +356,11 @@ func (m LinkMechanismMap) Iter(fn func(string, Mechanism) bool) {
 
 // LinkMechanismManager manages link layer mechanisms.
 type LinkMechanismManager interface {
-	// Base mechanism manager.
-	MechanismManager
-
 	// LinkDriver returns active link layer driver.
 	Driver() (LinkDriver, error)
 
 	// Context returns link context.
-	Context() (*LinkManagerContext, error)
+	Context(*LinkManagerContext) error
 
 	// CreateLink allocates necessary resources and restores
 	// persisted state.
@@ -465,51 +462,23 @@ func (m *BaseLinkMechanismManager) Driver() (LinkDriver, error) {
 }
 
 // Context returns link context of specified switch port.
-func (m *BaseLinkMechanismManager) Context() (*LinkManagerContext, error) {
+func (m *BaseLinkMechanismManager) Context(context *LinkManagerContext) error {
 	m.lock.RLock()
 	defer m.lock.RUnlock()
 
 	if m.drv == nil {
 		log.ErrorLog("link/CONTEXT",
 			"Link layer driver is not initialized")
-		return &LinkManagerContext{}, ErrLinkNotInitialized
+		return ErrLinkNotInitialized
 	}
 
-	var context LinkManagerContext
-	err := db.Read(LinkModel, m.Datapath, &context)
-	if err != nil {
-		log.ErrorLog("link/CONTEXT",
-			"Failed to read link configuration from the database: ", err)
-		return nil, err
-	}
-
-	return &context, nil
+	return m.BaseMechanismManager.Context(LinkModel, context)
 }
 
 func (m *BaseLinkMechanismManager) CreateLink() error {
-	var context LinkManagerContext
+	context := new(LinkManagerContext)
 
-	err := db.Transaction(func(p db.ModelPersister) error {
-		// Lock to make consistent configuration
-		err := p.Lock(LinkModel, m.Datapath, &context)
-
-		// Create a new record in a dabase for a new switch
-		if err != nil {
-			log.InfoLog("link/CREATE_LINK",
-				"Creating link configuration for: ", m.Datapath)
-
-			err = p.Create(LinkModel, &LinkManagerContext{Datapath: m.Datapath})
-			if err != nil {
-				log.ErrorLog("link/CREATE_LINK",
-					"Failed to create link configuration: ", err)
-			}
-
-			return err
-		}
-
-		log.InfoLog("link/CREATE_LINK",
-			"Restoring link configuration for: ", m.Datapath)
-
+	return m.BaseMechanismManager.Create(LinkModel, context, func() error {
 		// Nothing to do.
 		if context.Driver == "" {
 			return nil
@@ -551,17 +520,12 @@ func (m *BaseLinkMechanismManager) CreateLink() error {
 
 		return nil
 	})
-
-	if err != nil {
-		log.ErrorLog("link/CREATE_LINK",
-			"Failed to create link records in a database: ", err)
-	}
-
-	return err
 }
 
 // UpdateLink calls corresponding method for activated mechanisms.
 func (m *BaseLinkMechanismManager) UpdateLink(context *LinkManagerContext) (err error) {
+	link := new(LinkManagerContext)
+
 	if err = m.driver(context.Driver); err != nil {
 		return err
 	}
@@ -569,115 +533,68 @@ func (m *BaseLinkMechanismManager) UpdateLink(context *LinkManagerContext) (err 
 	m.lock.RLock()
 	defer m.lock.RUnlock()
 
-	ports := context.Ports
+	return m.BaseMechanismManager.Update(LinkModel, link, func() error {
+		link.Driver = context.Driver
 
-	for _, port := range ports {
-		addr, err := m.drv.ParseAddr(port.Addr)
-		if err != nil {
-			log.ErrorLog("link/UPDATE_LINK",
-				"Failed to parse link layer address: ", err)
-			return err
+		for _, port := range context.Ports {
+			addr, err := m.drv.ParseAddr(port.Addr)
+			if err != nil {
+				log.ErrorLog("link/UPDATE_LINK",
+					"Failed to parse link layer address: ", err)
+				return err
+			}
+
+			if err = m.drv.UpdateAddr(port.Port, addr); err != nil {
+				log.ErrorLog("link/UPDATE_LINK",
+					"Failed to update port link layer address: ", err)
+				return err
+			}
+
+			err = m.do(LinkMechanism.UpdateLink, &LinkContext{
+				Addr: addr,
+				Port: port.Port,
+			})
+
+			if err != nil {
+				log.ErrorLog("link/UPDATE_LINK",
+					"Failed to update link configuration: ", err)
+				return err
+			}
+
+			link.SetPort(port)
 		}
 
-		if err = m.drv.UpdateAddr(port.Port, addr); err != nil {
-			log.ErrorLog("link/UPDATE_LINK",
-				"Failed to update port link layer address: ", err)
-			return err
-		}
-
-		err = m.do(LinkMechanism.UpdateLink, &LinkContext{
-			Addr: addr,
-			Port: port.Port,
-		})
-
-		if err != nil {
-			log.ErrorLog("link/UPDATE_LINK",
-				"Failed to update link configuration: ", err)
-			return err
-		}
-	}
-
-	// Update link configuration in a database.
-	err = db.Transaction(func(p db.ModelPersister) error {
-		var oldcontext LinkManagerContext
-
-		if err = db.Lock(LinkModel, m.Datapath, &oldcontext); err != nil {
-			log.ErrorLog("link/UPDATE_LINK_DB_LOCK",
-				"Failed to lock record: ", err)
-			return err
-		}
-
-		// Save previous port configuration
-		context.Ports = oldcontext.Ports
-
-		// Update port configuration
-		for _, port := range ports {
-			context.SetPort(port)
-		}
-
-		if err = db.Update(LinkModel, m.Datapath, context); err != nil {
-			log.ErrorLog("link/UPDATE_LINK_DB_UPDATE",
-				"Failed to update record: ", err)
-		}
-
-		return err
+		return nil
 	})
-
-	if err != nil {
-		log.ErrorLog("link/UPDATE_LINK",
-			"Failed to create link records in a database: ", err)
-	}
-
-	return err
 }
 
 // DeleteLink calls corresponding method for activated mechanisms.
 func (m *BaseLinkMechanismManager) DeleteLink(context *LinkManagerContext) (err error) {
+	link := new(LinkManagerContext)
+
 	if err = m.driver(context.Driver); err != nil {
 		return err
 	}
 
-	ports := context.Ports
+	m.lock.RLock()
+	defer m.lock.RUnlock()
 
-	for _, port := range ports {
-		err = m.do(LinkMechanism.DeleteLink, &LinkContext{
-			Port: port.Port,
-		})
+	return m.BaseMechanismManager.Update(LinkModel, link, func() error {
+		for _, port := range context.Ports {
+			err = m.do(LinkMechanism.DeleteLink, &LinkContext{
+				Port: port.Port,
+			})
 
-		if err != nil {
-			log.ErrorLog("link/DELETE_LINK",
-				"Failed to delete link configuration: ", err)
-			return err
-		}
-	}
+			if err != nil {
+				log.ErrorLog("link/DELETE_LINK",
+					"Failed to delete link configuration: ", err)
+				return err
+			}
 
-	//TODO: delete address from the driver
-
-	// Update link configuration in a database.
-	err = db.Transaction(func(p db.ModelPersister) error {
-		if err = db.Lock(LinkModel, m.Datapath, context); err != nil {
-			log.ErrorLog("link/DELETE_LINK_DB_LOCK",
-				"Failed to lock record: ", err)
-			return err
+			link.DelPort(port)
 		}
 
-		// Update port configuration
-		for _, port := range ports {
-			context.DelPort(port)
-		}
-
-		if err = db.Update(LinkModel, m.Datapath, context); err != nil {
-			log.ErrorLog("link/DELETE_LINK_DB_DELETE",
-				"Failed to update record: ", err)
-		}
-
-		return err
+		//TODO: delete address from the driver
+		return nil
 	})
-
-	if err != nil {
-		log.ErrorLog("link/DELETE_LINK",
-			"Failed to delete link records from a database: ", err)
-	}
-
-	return err
 }

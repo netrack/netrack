@@ -2,8 +2,11 @@ package mech
 
 import (
 	"errors"
+	"reflect"
 	"sync/atomic"
 
+	"github.com/netrack/netrack/database"
+	"github.com/netrack/netrack/logging"
 	"github.com/netrack/netrack/mechanism/rpc"
 	"github.com/netrack/openflow"
 )
@@ -52,8 +55,15 @@ type MechanismContext struct {
 	// Network layer mechanism manager.
 	Network NetworkMechanismManager
 
+	// Route mechanism manager.
+	Route RouteMechanismManager
+
 	// Extention mechanism manager.
 	Extension *ExtensionMechanismManager
+}
+
+func (c *MechanismContext) Manager(interface{}) bool {
+	return false
 }
 
 // Mechanism describes switch drivers
@@ -128,7 +138,7 @@ type MechanismMap interface {
 // mechanisms using drivers.
 type MechanismManager interface {
 	// Mechanism returns registered mechanism by specified name.
-	Mechanism(string) (Mechanism, error)
+	Mechanism(string, Mechanism) error
 
 	// Enable performs initialization of registered mechanisms.
 	Enable(*MechanismContext)
@@ -151,16 +161,126 @@ type MechanismManager interface {
 
 // BaseMechanismManager implements MechanismManager interface.
 type BaseMechanismManager struct {
+	Datapath string
+
 	Mechanisms MechanismMap
 }
 
-// Mechanism implements MechanismManager interface.
-func (m *BaseMechanismManager) Mechanism(name string) (Mechanism, error) {
-	if mechanism, ok := m.Mechanisms.Get(name); ok {
-		return mechanism, nil
+func (m *BaseMechanismManager) Mechanism(name string, mech Mechanism) (err error) {
+	mechanism, ok := m.Mechanisms.Get(name)
+	if !ok {
+		log.ErrorLog("mechanism/MECHANISM",
+			"Failed to find requested mechanism")
+		return ErrMechanismNotRegistered
 	}
 
-	return nil, ErrMechanismNotRegistered
+	defer func() {
+		recovered := recover()
+		if recovered == nil {
+			return
+		}
+
+		err = ErrMechanismNotRegistered
+
+		if recoveredErr, ok := recovered.(error); ok {
+			err = recoveredErr
+		}
+	}()
+
+	firstValue := reflect.ValueOf(mech)
+	// Receiver should be a pointer and can be changed.
+	if firstValue.Kind() != reflect.Ptr || !firstValue.Elem().CanSet() {
+		return ErrMechanismNotRegistered
+	}
+
+	secondValue := reflect.ValueOf(mechanism)
+	// Values shoud be the same type.
+	if firstValue.Type() != secondValue.Type() {
+		return ErrMechanismNotRegistered
+	}
+
+	firstValue.Elem().Set(secondValue.Elem())
+	return nil
+}
+
+func (m *BaseMechanismManager) Context(model db.Model, context interface{}) error {
+	err := db.Read(model, m.Datapath, context)
+	if err != nil {
+		log.ErrorLog("mechanism/CONTEXT",
+			"Failed to read mechanism configuration from the database: ", err)
+		return err
+	}
+
+	return nil
+}
+
+func (m *BaseMechanismManager) Create(model db.Model, context interface{}, fn func() error) (err error) {
+	err = db.Transaction(func(p db.ModelPersister) error {
+		// Lock to make consistent configuration
+		err := p.Lock(model, m.Datapath, context)
+
+		// Create a new record in a dabase for a new switch
+		if err != nil {
+			log.InfoLogf("mechanism/CREATE_CONFIG",
+				"Creating %s mechanism config for %s switch", model, m.Datapath)
+
+			err = p.Create(model, map[string]string{"id": m.Datapath})
+			if err != nil {
+				log.ErrorLogf("mechanism/CREATE_CONFIG",
+					"Failed to create %s mechanism config for %s switch", model, err)
+			}
+
+			return err
+		}
+
+		log.InfoLogf("mechanism/CREATE_CONFIG",
+			"Restoring %s mechanism configuration for %s", model, m.Datapath)
+
+		if err = fn(); err != nil {
+			log.ErrorLogf("mechanism/CREATE_CONFIG",
+				"Failed to restore %s mechanism configuration", model)
+		}
+
+		return err
+	})
+
+	if err != nil {
+		log.ErrorLog("mechanism/CREATE_CONFIG",
+			"Failed to create mechanism config: ", err)
+	}
+
+	return err
+}
+
+func (m *BaseMechanismManager) Update(model db.Model, context interface{}, fn func() error) (err error) {
+	err = db.Transaction(func(p db.ModelPersister) error {
+		if err = db.Lock(model, m.Datapath, context); err != nil {
+			log.ErrorLog("mechanism/UPDATE_CONFIG_DB_LOCK",
+				"Failed to lock mechanism config: ", err)
+			return err
+		}
+
+		// fn can update context value
+		if err = fn(); err != nil {
+			log.ErrorLog("mechanism/UPDATE_CONFIG",
+				"Failed to update mechanism config: ", err)
+			return err
+		}
+
+		if err = db.Update(model, m.Datapath, context); err != nil {
+			log.ErrorLog("mechanism/UPDATE_CONFIG_DB_UPDATE",
+				"Failed to update %s mechanism config: ", model, err)
+		}
+
+		return err
+	})
+
+	if err != nil {
+		log.ErrorLog("mechanism/UPDATE_CONFIG",
+			"Failed to update mechanism config: ", err)
+	}
+
+	return err
 }
 
 // Enable enables all registered mechanisms

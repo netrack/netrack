@@ -33,7 +33,7 @@ func (h *NeighHandler) Enable(c *mech.HTTPDriverContext) {
 	h.C.Mux.HandleFunc("DELETE", "/v1/datapaths/{dpid}/neigh", h.destroyHandler)
 
 	log.InfoLog("neigh_handlers/ENABLE_HOOK",
-		"Neight management enabled")
+		"Neigh management enabled")
 }
 
 func (h *NeighHandler) createHandler(rw http.ResponseWriter, r *http.Request) {

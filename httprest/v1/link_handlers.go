@@ -31,13 +31,13 @@ func NewLinkHandler() mech.HTTPDriver {
 func (h *LinkHandler) Enable(c *mech.HTTPDriverContext) {
 	h.BaseHTTPDriver.Enable(c)
 
-	h.C.Mux.HandleFunc("GET", "/v1/datapaths/{dpid}/interfaces/link", h.indexHandler)
+	h.C.Mux.HandleFunc("GET", "/v1/datapaths/{dpid}/interfaces/links", h.indexHandler)
 	h.C.Mux.HandleFunc("GET", "/v1/datapaths/{dpid}/interfaces/{interface}/link", h.showHandler)
 	h.C.Mux.HandleFunc("PUT", "/v1/datapaths/{dpid}/interfaces/{interface}/link", h.createHandler)
 	h.C.Mux.HandleFunc("DELETE", "/v1/datapaths/{dpid}/interfaces/{interface}/link", h.destroyHandler)
 
 	log.InfoLog("link_handlers/ENABLE_HOOK",
-		"L2 address management enabled")
+		"Link layer handlers enabled")
 }
 
 func (h *LinkHandler) context(rw http.ResponseWriter, r *http.Request) (*mech.MechanismContext, *mech.SwitchPort, error) {
@@ -102,9 +102,9 @@ func (h *LinkHandler) indexHandler(rw http.ResponseWriter, r *http.Request) {
 	}
 
 	var links []models.Link
+	var link mech.LinkManagerContext
 
-	link, err := context.Link.Context()
-	if err != nil {
+	if err := context.Link.Context(&link); err != nil {
 		log.ErrorLog("link_handlers/INDEX_HANDLER",
 			"Failed to retrieve link context: ", err)
 
@@ -182,7 +182,8 @@ func (h *LinkHandler) showHandler(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	link, _ := context.Link.Context()
+	var link mech.LinkManagerContext
+	context.Link.Context(&link)
 	linkPort := link.Port(switchPort.Number)
 
 	// Return interface link data.

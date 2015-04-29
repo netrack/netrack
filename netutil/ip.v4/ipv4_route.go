@@ -10,34 +10,29 @@ import (
 	"github.com/netrack/openflow/ofp.v13/ofputil"
 )
 
-const IPv4MechanismName = "IPv4#RFC791"
-
 func init() {
-	constructor := mech.NetworkMechanismConstructorFunc(NewIPMechanism)
-	mech.RegisterNetworkMechanism(IPv4MechanismName, constructor)
+	constructor := mech.RouteMechanismConstructorFunc(NewIPv4Routing)
+	mech.RegisterRouteMechanism("IPv4#RFC791[ROUTING]", constructor)
 }
 
-type IPMechanism struct {
-	mech.BaseNetworkMechanism
+type IPv4Routing struct {
+	mech.BaseRouteMechanism
 
 	cookies *of.CookieFilter
 
 	// IPv4 routing table instance.
 	routeTable mechutil.RoutingTable
-
-	// Table number allocated for the mechanism.
-	tableNo int
 }
 
-func NewIPMechanism() mech.NetworkMechanism {
-	return &IPMechanism{
+func NewIPv4Routing() mech.RouteMechanism {
+	return &IPv4Routing{
 		cookies: of.NewCookieFilter(),
 	}
 }
 
 // Enable implements Mechanism interface
-func (m *IPMechanism) Enable(c *mech.MechanismContext) {
-	m.BaseNetworkMechanism.Enable(c)
+func (m *IPv4Routing) Enable(c *mech.MechanismContext) {
+	m.BaseRouteMechanism.Enable(c)
 
 	// Handle incoming IPv4 packets.
 	m.C.Mux.HandleFunc(of.T_PACKET_IN, m.packetInHandler)
@@ -46,99 +41,39 @@ func (m *IPMechanism) Enable(c *mech.MechanismContext) {
 		"Mechanism IP enabled")
 }
 
-// Activate implements Mechanism interface
-func (m *IPMechanism) Activate() {
-	m.BaseNetworkMechanism.Activate()
+func (m *IPv4Routing) Activate() {
+	m.BaseRouteMechanism.Activate()
 
 	// Operate on PacketIn messages
 	m.cookies.Baker = ofputil.PacketInBaker()
-
-	// Allocate table for handling ipv4 protocol.
-	tableNo, err := m.C.Switch.AllocateTable()
-	if err != nil {
-		log.ErrorLog("ipv4/ACTIVATE_HOOK",
-			"Failed to allocate a new table: ", err)
-
-		return
-	}
-
-	m.tableNo = tableNo
-
-	log.DebugLog("ipv4/ACTIVATE_HOOK",
-		"Allocated table: ", tableNo)
-
-	// Match packets of IPv4 protocol.
-	match := ofp.Match{ofp.MT_OXM, []ofp.OXM{
-		ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_ETH_TYPE, of.Bytes(iana.ETHT_IPV4), nil},
-	}}
-
-	// Move all packets to allocated matching table for IPv4 packets.
-	instructions := ofp.Instructions{ofp.InstructionGotoTable{ofp.Table(m.tableNo)}}
-
-	// Insert flow into 0 table.
-	r, err := of.NewRequest(of.T_FLOW_MOD, of.NewReader(&ofp.FlowMod{
-		Command:      ofp.FC_ADD,
-		BufferID:     ofp.NO_BUFFER,
-		Priority:     10,
-		Match:        match,
-		Instructions: instructions,
-	}))
-
-	if err != nil {
-		log.ErrorLog("ipv4/ACTIVATE_HOOK",
-			"Failed to create ofp_flow_mod request: ", err)
-
-		return
-	}
-
-	if err = m.C.Switch.Conn().Send(r); err != nil {
-		log.ErrorLog("ipv4/ACTIVATE_HOOK",
-			"Failed to send request: ", err)
-
-		return
-	}
-
-	// Create black-hole rule.
-	r, err = of.NewRequest(of.T_FLOW_MOD, of.NewReader(&ofp.FlowMod{
-		TableID:  ofp.Table(m.tableNo),
-		Command:  ofp.FC_ADD,
-		BufferID: ofp.NO_BUFFER,
-		Match:    ofp.Match{ofp.MT_OXM, nil},
-	}))
-
-	if err != nil {
-		log.ErrorLog("ipv4/ACTIVATE_HOOK",
-			"Failed to create ofp_flow_mod request: ", err)
-
-		return
-	}
-
-	if err = m.C.Switch.Conn().Send(r); err != nil {
-		log.ErrorLog("ipv4/ACTIVATE_HOOK",
-			"Failed to send request: ", err)
-
-		return
-	}
-
-	if err = m.C.Switch.Conn().Flush(); err != nil {
-		log.ErrorLog("ipv4/ACTIVATE_HOOK",
-			"Failed to flush requests: ", err)
-	}
 }
 
-// Disable implements Mechanism interface
-func (m *IPMechanism) Disable() {
-	m.BaseNetworkMechanism.Disable()
-	// pass
-}
+func (m *IPv4Routing) UpdateRoute(context *mech.RouteContext) error {
+	nldriver, err := m.C.Network.Driver()
+	if err != nil {
+		log.InfoLog("routing/CREATE_ROUTE",
+			"Network layer driver is not intialized: ", err)
+		return err
+	}
 
-func (m *IPMechanism) UpdateNetwork(context *mech.NetworkContext) error {
-	// Match IPv4 packets of specified subnetwork.
+	network, err := nldriver.ParseAddr(context.Network)
+	if err != nil {
+		log.ErrorLog("routing/CREATE_ROUTE",
+			"Failed to parse network string: ", err)
+		return err
+	}
+
+	nextHop, err := nldriver.ParseAddr(context.NextHop)
+	if err != nil {
+		log.ErrorLog("routing/CREATE_ROUTE",
+			"Failed to parse next-hop string: ", err)
+		return err
+	}
+
+	// Match IPv4 packets of specified route.
 	match := ofp.Match{ofp.MT_OXM, []ofp.OXM{
 		ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_ETH_TYPE, of.Bytes(iana.ETHT_IPV4), nil},
-		//TODO: should be valid for all switch ports
-		//ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_ETH_DST, lladdr.Bytes(), nil},
-		ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_IPV4_DST, context.Addr.Bytes(), context.Addr.Mask()},
+		ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_IPV4_DST, network.Bytes(), network.Mask()},
 	}}
 
 	// Send all such packets to controller.
@@ -150,9 +85,8 @@ func (m *IPMechanism) UpdateNetwork(context *mech.NetworkContext) error {
 
 	flowMod := ofp.FlowMod{
 		Command:      ofp.FC_ADD,
-		TableID:      ofp.Table(m.tableNo),
 		BufferID:     ofp.NO_BUFFER,
-		Priority:     10,
+		Priority:     15,
 		Match:        match,
 		Instructions: instruction,
 	}
@@ -162,54 +96,56 @@ func (m *IPMechanism) UpdateNetwork(context *mech.NetworkContext) error {
 
 	// Update routing table with new address
 	m.routeTable.Populate(mechutil.RouteEntry{
-		Network: context.Addr,
+		Type:    mechutil.StaticRoute,
+		Network: network,
+		NextHop: nextHop,
 		Port:    context.Port,
 	})
 
 	r, err := of.NewRequest(of.T_FLOW_MOD, of.NewReader(&flowMod))
 	if err != nil {
-		log.ErrorLog("ip/UPDATE_NETWORK",
+		log.ErrorLog("routing/UPDATE_ROUTES",
 			"Failed to create new ofp_flow_mod request: ", err)
 		return err
 	}
 
 	if err = m.C.Switch.Conn().Send(r); err != nil {
-		log.ErrorLog("ip/UPDATE_NETWORK",
+		log.ErrorLog("routing/UPDATE_ROUTES",
 			"Failed to send ofp_flow_mode request: ", err)
 		return err
 	}
 
 	if err = m.C.Switch.Conn().Flush(); err != nil {
-		log.ErrorLog("ip/UPDATE_NETWORK",
+		log.ErrorLog("routing/UPDATE_ROUTES",
 			"Failed to flush requests: ", err)
 	}
 
 	return err
 }
 
-func (m *IPMechanism) DeleteNetwork(context *mech.NetworkContext) error {
+func (m *IPv4Routing) DeleteRoute(context *mech.RouteContext) error {
 	return nil
 }
 
-func (m *IPMechanism) packetInHandler(rw of.ResponseWriter, r *of.Request) {
+func (m *IPv4Routing) packetInHandler(rw of.ResponseWriter, r *of.Request) {
 	m.cookies.Serve(rw, r)
 }
 
-func (m *IPMechanism) ipPacketHandler(rw of.ResponseWriter, r *of.Request) {
+func (m *IPv4Routing) ipPacketHandler(rw of.ResponseWriter, r *of.Request) {
 	var packet ofp.PacketIn
 	var pdu2 mech.LinkFrame
 	var pdu3 mech.NetworkPacket
 
 	lldriver, err := m.C.Link.Driver()
 	if err != nil {
-		log.InfoLog("ip/IP_PACKET_HANDLER_LLDRIVER",
+		log.InfoLog("routing/IP_PACKET_HANDLER_LLDRIVER",
 			"Link layer driver is not initialized: ", err)
 		return
 	}
 
 	nldriver, err := m.C.Network.Driver()
 	if err != nil {
-		log.InfoLog("ip/IP_PACKET_HANDLER",
+		log.InfoLog("routing/IP_PACKET_HANDLER",
 			"Network layer driver is not intialized: ", err)
 		return
 	}
@@ -218,17 +154,17 @@ func (m *IPMechanism) ipPacketHandler(rw of.ResponseWriter, r *of.Request) {
 	nlreader := mech.MakeNetworkReaderFrom(nldriver, &pdu3)
 
 	if _, err = of.ReadAllFrom(r.Body, &packet, llreader, nlreader); err != nil {
-		log.ErrorLog("ip/IP_PACKET_HANDLER",
+		log.ErrorLog("routing/IP_PACKET_HANDLER",
 			"Failed to read packet: ", err)
 		return
 	}
 
-	log.DebugLog("ip/IP_PACKET_HANDLER",
+	log.DebugLog("routing/IP_PACKET_HANDLER",
 		"Got ip packet to: ", pdu3.DstAddr)
 
 	route, ok := m.routeTable.Lookup(pdu3.DstAddr)
 	if !ok {
-		log.DebugLogf("ip/IP_PACKET_HANDLER",
+		log.DebugLogf("routing/IP_PACKET_HANDLER",
 			"Route to %s not found", pdu3.DstAddr)
 		return
 	}
@@ -236,32 +172,27 @@ func (m *IPMechanism) ipPacketHandler(rw of.ResponseWriter, r *of.Request) {
 	// Search for link layer address of egress port.
 	srcAddr, err := lldriver.Addr(route.Port)
 	if err != nil {
-		log.ErrorLog("ip/PACKET_IN_HANDLER",
+		log.ErrorLog("routing/PACKET_IN_HANDLER",
 			"Failed to retrieve port link layer address: ", err)
 		return
 	}
 
-	netwMech, err := m.C.Network.Mechanism(ARPMechanismName)
+	var arpMech ARPMechanism
+	err = m.C.Network.Mechanism(ARPMechanismName, &arpMech)
 	if err != nil {
-		log.ErrorLog("ip/IP_PACKET_HANDLER",
+		log.ErrorLog("routing/IP_PACKET_HANDLER",
 			"ARP network mechanism is not found: ", err)
-	}
-
-	arpMech, ok := netwMech.(*ARPMechanism)
-	if !ok {
-		log.ErrorLog("ip/IP_PACKET_HANDLER",
-			"Failed to find ARP mechanism")
 		return
 	}
 
-	dstAddr, err := arpMech.ResolveFunc(pdu3.DstAddr, route.Port)
+	dstAddr, err := arpMech.ResolveFunc(route.NextHop, route.Port)
 	if err != nil {
-		log.ErrorLog("ip/IP_PACKET_HANDLER",
+		log.ErrorLog("routing/IP_PACKET_HANDLER",
 			"Failed to resolve link layer address: ", err)
 		return
 	}
 
-	log.DebugLog("ip/IP_PACKET_HANDLER",
+	log.DebugLog("routing/IP_PACKET_HANDLER",
 		"Resolved link layer address: ", dstAddr)
 
 	// Create permanent rule for discovered address.
@@ -287,16 +218,15 @@ func (m *IPMechanism) ipPacketHandler(rw of.ResponseWriter, r *of.Request) {
 	// TODO: set expire timeout
 	flowMod := ofp.FlowMod{
 		Command:      ofp.FC_ADD,
-		TableID:      ofp.Table(m.tableNo),
 		BufferID:     ofp.NO_BUFFER,
-		Priority:     20,
+		Priority:     25,
 		Match:        match,
 		Instructions: instructions,
 	}
 
 	_, err = of.WriteAllTo(rw, &flowMod)
 	if err != nil {
-		log.ErrorLog("ip/IP_PACKET_HANDLER",
+		log.ErrorLog("routing/IP_PACKET_HANDLER",
 			"Failed to write response: ", err)
 		return
 	}
@@ -304,7 +234,7 @@ func (m *IPMechanism) ipPacketHandler(rw of.ResponseWriter, r *of.Request) {
 	rw.Header().Set(of.TypeHeaderKey, of.T_FLOW_MOD)
 	rw.Header().Set(of.VersionHeaderKey, ofp.VERSION)
 	if err = rw.WriteHeader(); err != nil {
-		log.ErrorLog("ip/IP_PACKET_HANDLER",
+		log.ErrorLog("routing/IP_PACKET_HANDLER",
 			"Failed to send ICMP-REPLY response: ", err)
 	}
 }

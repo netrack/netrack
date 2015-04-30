@@ -42,9 +42,9 @@ func (m *IPMechanism) Disable() {
 }
 
 func (m *IPMechanism) UpdateNetwork(context *mech.NetworkContext) error {
-	var ipv4Routing IPv4Routing
+	ipv4Routing := new(IPv4Routing)
 
-	err := m.C.Routing.Mechanism(IPv4RoutingName, &ipv4Routing)
+	err := m.C.Routing.Mechanism(IPv4RoutingName, ipv4Routing)
 	if err != nil {
 		log.ErrorLog("ipv4/UPDATE_NETWORK",
 			"IPv4 routing mechanism is not found: ", err)
@@ -60,16 +60,16 @@ func (m *IPMechanism) UpdateNetwork(context *mech.NetworkContext) error {
 }
 
 func (m *IPMechanism) DeleteNetwork(context *mech.NetworkContext) error {
-	var ipv4Routing IPv4Routing
+	ipv4Routing := new(IPv4Routing)
 
-	err := m.C.Routing.Mechanism(IPv4RoutingName, &ipv4Routing)
+	err := m.C.Routing.Mechanism(IPv4RoutingName, ipv4Routing)
 	if err != nil {
 		log.ErrorLog("ipv4/UPDATE_NETWORK",
 			"IPv4 routing mechanism is not found: ", err)
 		return err
 	}
 
-	// Update routing table with new address
+	// Delete route from the routing table.
 	return ipv4Routing.DeleteRoute(&mech.RouteContext{
 		Type:    string(mechutil.ConnectedRoute),
 		Network: context.Addr.String(),

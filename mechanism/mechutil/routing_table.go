@@ -1,8 +1,9 @@
 package mechutil
 
 import (
+	"bytes"
 	"errors"
-	"sort"
+	//"sort"
 	"sync"
 	"time"
 
@@ -48,9 +49,29 @@ type RouteEntry struct {
 	Port      uint32
 }
 
+func (e *RouteEntry) Equal(entry *RouteEntry) bool {
+	if !bytes.Equal(e.Network.Bytes(), entry.Network.Bytes()) {
+		return false
+	}
+
+	if !bytes.Equal(e.Network.Mask(), entry.Network.Mask()) {
+		return false
+	}
+
+	if e.Port != entry.Port {
+		return false
+	}
+
+	return true
+}
+
 type RoutingTable struct {
 	routes []RouteEntry
 	lock   sync.RWMutex
+}
+
+func NewRoutingTable() *RoutingTable {
+	return &RoutingTable{}
 }
 
 func (t *RoutingTable) Populate(entry RouteEntry) error {
@@ -60,7 +81,7 @@ func (t *RoutingTable) Populate(entry RouteEntry) error {
 	entry.Timestamp = time.Now()
 
 	t.routes = append(t.routes, entry)
-	sort.Sort(t)
+	//sort.Sort(t)
 
 	return nil
 }
@@ -69,25 +90,8 @@ func (t *RoutingTable) Evict(entry RouteEntry) bool {
 	t.lock.Lock()
 	defer t.lock.Unlock()
 
-	if entry.Network == nil {
-		return false
-	}
-
 	for i, e := range t.routes {
-		if e.Network.String() != entry.Network.String() {
-			continue
-		}
-
-		if e.Port != entry.Port {
-			continue
-		}
-
-		if (e.NextHop != nil) != (entry.Network != nil) {
-			continue
-		}
-
-		checkNextHop := e.NextHop != nil && entry.NextHop != nil
-		if checkNextHop && e.NextHop.String() != entry.NextHop.String() {
+		if !e.Equal(&entry) {
 			continue
 		}
 

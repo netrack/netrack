@@ -136,7 +136,7 @@ func (h *NetworkHandler) createHandler(rw http.ResponseWriter, r *http.Request) 
 
 	rf, wf := Format(r)
 
-	switchContext, switchPort, err := h.context(rw, r)
+	mechanism, switchPort, err := h.context(rw, r)
 	if err != nil {
 		return
 	}
@@ -152,14 +152,14 @@ func (h *NetworkHandler) createHandler(rw http.ResponseWriter, r *http.Request) 
 	}
 
 	context := &mech.NetworkManagerContext{
-		Datapath: switchContext.Switch.ID(),
+		Datapath: mechanism.Switch.ID(),
 		Driver:   network.Encapsulation.String(),
 		Ports: []mech.NetworkPort{
 			{network.Addr.String(), switchPort.Number},
 		},
 	}
 
-	if err = switchContext.Network.UpdateNetwork(context); err != nil {
+	if err = mechanism.Network.UpdateNetwork(context); err != nil {
 		log.ErrorLog("network_handlers/CREATE_HANDLER",
 			"Failed to createa a new L3 address: ", err)
 
@@ -199,4 +199,27 @@ func (h *NetworkHandler) showHandler(rw http.ResponseWriter, r *http.Request) {
 func (h *NetworkHandler) destroyHandler(rw http.ResponseWriter, r *http.Request) {
 	log.InfoLog("network_handlers/DESTROY_HANDLER",
 		"Got request to destroy L3 address")
+
+	wf := WriteFormat(r)
+
+	mechanism, switchPort, err := h.context(rw, r)
+	if err != nil {
+		return
+	}
+
+	context := &mech.NetworkManagerContext{
+		Datapath: mechanism.Switch.ID(),
+		Ports:    []mech.NetworkPort{{"", switchPort.Number}},
+	}
+
+	if err = mechanism.Network.DeleteNetwork(context); err != nil {
+		log.ErrorLog("network_handlers/DELETE_HANDLER",
+			"Failed to delete network layer address: ", err)
+
+		rw.WriteHeader(http.StatusConflict)
+		wf.Write(rw, r, models.Error{"failed update network"})
+		return
+	}
+
+	rw.WriteHeader(http.StatusOK)
 }

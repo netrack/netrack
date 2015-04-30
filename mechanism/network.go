@@ -105,6 +105,9 @@ func (c *NetworkManagerContext) DelPort(p NetworkPort) {
 // NetworkContext wraps network resources and provides
 // methods for accessing other network intformation.
 type NetworkContext struct {
+	// Network layer driver.
+	Driver NetworkDriver
+
 	// Network layer address.
 	Addr NetworkAddr
 
@@ -532,7 +535,8 @@ func (m *BaseNetworkMechanismManager) CreateNetwork() error {
 	context := new(NetworkManagerContext)
 
 	return m.BaseMechanismManager.Create(NetworkModel, context, func() error {
-		// Nothing to do.
+		// If driver equals to empty string, that mechanism was not
+		// previously activated, so there is nothing to configure
 		if context.Driver == "" {
 			return nil
 		}
@@ -555,18 +559,20 @@ func (m *BaseNetworkMechanismManager) CreateNetwork() error {
 
 			if err = m.drv.UpdateAddr(port.Port, addr); err != nil {
 				log.ErrorLog("network/UPDATE_NETWORK",
-					"Failed to update port network layer address: ", err)
+					"Failed to update network layer driver: ", err)
 				return err
 			}
 
+			// Broadcast request to all activated network mechanisms
 			err = m.do(NetworkMechanism.UpdateNetwork, &NetworkContext{
-				Addr: addr,
-				Port: port.Port,
+				Addr:   addr,
+				Port:   port.Port,
+				Driver: m.drv,
 			})
 
 			if err != nil {
 				log.ErrorLog("network/CREATE_NETWORK",
-					"Failed to create network for port: ", port.Port)
+					"Failed to create network layer configuration: ", port.Port)
 				return err
 			}
 		}
@@ -586,7 +592,15 @@ func (m *BaseNetworkMechanismManager) UpdateNetwork(context *NetworkManagerConte
 	m.lock.RLock()
 	defer m.lock.RUnlock()
 
-	return m.BaseMechanismManager.Update(NetworkModel, network, func() error {
+	update := func(fn func() error) error {
+		return m.BaseMechanismManager.Update(
+			NetworkModel,
+			network,
+			fn,
+		)
+	}
+
+	return update(func() error {
 		network.Driver = context.Driver
 
 		for _, port := range context.Ports {
@@ -599,13 +613,14 @@ func (m *BaseNetworkMechanismManager) UpdateNetwork(context *NetworkManagerConte
 
 			if err = m.drv.UpdateAddr(port.Port, addr); err != nil {
 				log.ErrorLog("network/UPDATE_NETWORK",
-					"Failed to update port network layer address: ", err)
+					"Failed to update network layer driver: ", err)
 				return err
 			}
 
 			err = m.do(NetworkMechanism.UpdateNetwork, &NetworkContext{
-				Addr: addr,
-				Port: port.Port,
+				Addr:   addr,
+				Port:   port.Port,
+				Driver: m.drv,
 			})
 
 			if err != nil {
@@ -620,37 +635,67 @@ func (m *BaseNetworkMechanismManager) UpdateNetwork(context *NetworkManagerConte
 
 		return nil
 	})
-
 }
 
 // DeleteNetwork calls corresponding method for activated mechanisms.
 func (m *BaseNetworkMechanismManager) DeleteNetwork(context *NetworkManagerContext) (err error) {
+	// Create new instance, that whould be readed from
+	// the database
 	network := new(NetworkManagerContext)
-
-	if err = m.driver(context.Driver); err != nil {
-		return err
-	}
 
 	m.lock.RLock()
 	defer m.lock.RUnlock()
 
-	return m.BaseMechanismManager.Update(NetworkModel, network, func() error {
-		for _, port := range context.Ports {
-			err = m.do(NetworkMechanism.DeleteNetwork, &NetworkContext{
-				Port: port.Port,
-			})
+	if m.drv == nil {
+		return ErrNetworkNotInitialized
+	}
 
-			if err != nil {
-				log.ErrorLog("network/DELETE_NETWORK",
-					"Failed to delete network configuration: ", err)
-				return err
-			}
+	update := func(fn func() error) error {
+		return m.BaseMechanismManager.Update(
+			NetworkModel,
+			network,
+			fn,
+		)
+	}
 
-			// Update port configuration
-			network.DelPort(port)
+	alter := func(port NetworkPort) error {
+		// Since, DELETE request does not necessary contains
+		// network layer address to delete, first, request
+		// driver for port configuration.
+		addr, err := m.drv.Addr(port.Port)
+		if err != nil {
+			log.ErrorLog("network/DELETE_NETWORK",
+				"Network layer address is not assigned to port: ", err)
+			return err
 		}
 
+		// Forward event to activated mechanisms.
+		err = m.do(NetworkMechanism.DeleteNetwork, &NetworkContext{
+			Addr:   addr,
+			Port:   port.Port,
+			Driver: m.drv,
+		})
+
+		if err != nil {
+			log.ErrorLog("network/DELETE_NETWORK",
+				"Failed to delete network configuration: ", err)
+			return err
+		}
+
+		// Update network layer port configuration.
+		// This updated instance will be stored in a database.
+		network.DelPort(port)
+
 		//TODO: delete address from the driver
+		return nil
+	}
+
+	return update(func() error {
+		for _, port := range context.Ports {
+			if err := alter(port); err != nil {
+				return err
+			}
+		}
 
 		return nil
 	})

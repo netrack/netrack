@@ -202,12 +202,12 @@ func (m *BaseRouteMechanismManager) Context(context *RouteManagerContext) error 
 }
 
 func (m *BaseRouteMechanismManager) CreateRoutes() error {
-	var context RouteManagerContext
+	context := new(RouteManagerContext)
 
 	m.lock.RLock()
 	defer m.lock.RUnlock()
 
-	return m.BaseMechanismManager.Create(RouteModel, &context, func() error {
+	return m.BaseMechanismManager.Create(RouteModel, context, func() error {
 		for _, route := range context.Routes {
 			err := m.do(RouteMechanism.UpdateRoute, route)
 

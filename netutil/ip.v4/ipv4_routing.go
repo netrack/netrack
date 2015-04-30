@@ -23,7 +23,7 @@ type IPv4Routing struct {
 	cookies *of.CookieFilter
 
 	// IPv4 routing table instance.
-	routeTable mechutil.RoutingTable
+	routeTable *mechutil.RoutingTable
 
 	// Table number allocated for the mechanism.
 	tableNo int
@@ -31,7 +31,8 @@ type IPv4Routing struct {
 
 func NewIPv4Routing() mech.RouteMechanism {
 	return &IPv4Routing{
-		cookies: of.NewCookieFilter(),
+		cookies:    of.NewCookieFilter(),
+		routeTable: mechutil.NewRoutingTable(),
 	}
 }
 
@@ -153,7 +154,7 @@ func (m *IPv4Routing) UpdateRoute(context *mech.RouteContext) error {
 
 	// Update routing table with new address
 	m.routeTable.Populate(mechutil.RouteEntry{
-		Type:    mechutil.StaticRoute,
+		Type:    mechutil.RouteType(context.Type),
 		Network: network,
 		NextHop: nextHop,
 		Port:    context.Port,
@@ -211,7 +212,7 @@ func (m *IPv4Routing) DeleteRoute(context *mech.RouteContext) error {
 
 	if !evicted {
 		log.ErrorLog("routing/DELETE_ROUTE",
-			"Failed to delete specified route: ", err)
+			"Failed to delete specified route: ", network)
 		return nil
 	}
 

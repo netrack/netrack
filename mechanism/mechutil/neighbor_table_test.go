@@ -2,6 +2,8 @@ package mechutil
 
 import (
 	"testing"
+
+	"github.com/netrack/netrack/mechanism"
 )
 
 type LinkAddr string
@@ -15,6 +17,10 @@ func (lladdr LinkAddr) Bytes() []byte {
 }
 
 type NetworkAddr string
+
+func (nladdr NetworkAddr) Contains(mech.NetworkAddr) bool {
+	return false
+}
 
 func (nladdr NetworkAddr) String() string {
 	return string(nladdr)

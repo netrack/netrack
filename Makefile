@@ -15,6 +15,7 @@ NETRACK_PKG        += .
 NETRACK_PKG        += config config/environment
 NETRACK_PKG        += controller
 NETRACK_PKG        += database
+NETRACK_PKG        += httputil
 NETRACK_PKG        += httprest/format httprest/v1
 NETRACK_PKG        += ioutil
 NETRACK_PKG        += logging

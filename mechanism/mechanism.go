@@ -56,7 +56,7 @@ type MechanismContext struct {
 	Network NetworkMechanismManager
 
 	// Route mechanism manager.
-	Route RouteMechanismManager
+	Routing RouteMechanismManager
 
 	// Extention mechanism manager.
 	Extension *ExtensionMechanismManager

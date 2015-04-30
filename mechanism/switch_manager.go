@@ -93,7 +93,7 @@ func (m *SwitchManager) CreateSwitch(conn of.OFPConn) error {
 		Mux:       of.NewServeMux(),
 		Link:      linkManager,
 		Network:   networkManager,
-		Route:     routeManager,
+		Routing:   routeManager,
 		Extension: extensionManager,
 	}
 

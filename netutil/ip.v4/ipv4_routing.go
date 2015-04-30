@@ -10,9 +10,11 @@ import (
 	"github.com/netrack/openflow/ofp.v13/ofputil"
 )
 
+const IPv4RoutingName = "IPv4#RFC791"
+
 func init() {
 	constructor := mech.RouteMechanismConstructorFunc(NewIPv4Routing)
-	mech.RegisterRouteMechanism("IPv4#RFC791[ROUTING]", constructor)
+	mech.RegisterRouteMechanism(IPv4RoutingName, constructor)
 }
 
 type IPv4Routing struct {
@@ -22,6 +24,9 @@ type IPv4Routing struct {
 
 	// IPv4 routing table instance.
 	routeTable mechutil.RoutingTable
+
+	// Table number allocated for the mechanism.
+	tableNo int
 }
 
 func NewIPv4Routing() mech.RouteMechanism {
@@ -37,8 +42,8 @@ func (m *IPv4Routing) Enable(c *mech.MechanismContext) {
 	// Handle incoming IPv4 packets.
 	m.C.Mux.HandleFunc(of.T_PACKET_IN, m.packetInHandler)
 
-	log.InfoLog("ipv4/ENABLE_HOOK",
-		"Mechanism IP enabled")
+	log.InfoLog("routing/ENABLE_HOOK",
+		"IPv4 routing enabled")
 }
 
 func (m *IPv4Routing) Activate() {
@@ -46,6 +51,77 @@ func (m *IPv4Routing) Activate() {
 
 	// Operate on PacketIn messages
 	m.cookies.Baker = ofputil.PacketInBaker()
+
+	// Allocate table for handling ipv4 protocol.
+	tableNo, err := m.C.Switch.AllocateTable()
+	if err != nil {
+		log.ErrorLog("routing/ACTIVATE_HOOK",
+			"Failed to allocate a new table: ", err)
+		return
+	}
+
+	m.tableNo = tableNo
+
+	log.DebugLog("routing/ACTIVATE_HOOK",
+		"Allocated table: ", tableNo)
+
+	// Match packets of IPv4 protocol.
+	match := ofp.Match{ofp.MT_OXM, []ofp.OXM{
+		ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_ETH_TYPE, of.Bytes(iana.ETHT_IPV4), nil},
+	}}
+
+	// Move all packets to allocated matching table for IPv4 packets.
+	instructions := ofp.Instructions{ofp.InstructionGotoTable{ofp.Table(m.tableNo)}}
+
+	// Insert flow into 0 table.
+	r, err := of.NewRequest(of.T_FLOW_MOD, of.NewReader(&ofp.FlowMod{
+		Command:      ofp.FC_ADD,
+		BufferID:     ofp.NO_BUFFER,
+		Priority:     10,
+		Match:        match,
+		Instructions: instructions,
+	}))
+
+	if err != nil {
+		log.ErrorLog("routing/ACTIVATE_HOOK",
+			"Failed to create ofp_flow_mod request: ", err)
+
+		return
+	}
+
+	if err = m.C.Switch.Conn().Send(r); err != nil {
+		log.ErrorLog("routing/ACTIVATE_HOOK",
+			"Failed to send request: ", err)
+
+		return
+	}
+
+	// Create black-hole rule.
+	r, err = of.NewRequest(of.T_FLOW_MOD, of.NewReader(&ofp.FlowMod{
+		TableID:  ofp.Table(m.tableNo),
+		Command:  ofp.FC_ADD,
+		BufferID: ofp.NO_BUFFER,
+		Match:    ofp.Match{ofp.MT_OXM, nil},
+	}))
+
+	if err != nil {
+		log.ErrorLog("routing/ACTIVATE_HOOK",
+			"Failed to create ofp_flow_mod request: ", err)
+
+		return
+	}
+
+	if err = m.C.Switch.Conn().Send(r); err != nil {
+		log.ErrorLog("routing/ACTIVATE_HOOK",
+			"Failed to send request: ", err)
+
+		return
+	}
+
+	if err = m.C.Switch.Conn().Flush(); err != nil {
+		log.ErrorLog("routing/ACTIVATE_HOOK",
+			"Failed to flush requests: ", err)
+	}
 }
 
 func (m *IPv4Routing) UpdateRoute(context *mech.RouteContext) error {
@@ -64,7 +140,7 @@ func (m *IPv4Routing) UpdateRoute(context *mech.RouteContext) error {
 	}
 
 	nextHop, err := nldriver.ParseAddr(context.NextHop)
-	if err != nil {
+	if context.NextHop != "" && err != nil {
 		log.ErrorLog("routing/CREATE_ROUTE",
 			"Failed to parse next-hop string: ", err)
 		return err
@@ -85,6 +161,7 @@ func (m *IPv4Routing) UpdateRoute(context *mech.RouteContext) error {
 
 	flowMod := ofp.FlowMod{
 		Command:      ofp.FC_ADD,
+		TableID:      ofp.Table(m.tableNo),
 		BufferID:     ofp.NO_BUFFER,
 		Priority:     15,
 		Match:        match,
@@ -185,7 +262,12 @@ func (m *IPv4Routing) ipPacketHandler(rw of.ResponseWriter, r *of.Request) {
 		return
 	}
 
-	dstAddr, err := arpMech.ResolveFunc(route.NextHop, route.Port)
+	netwAddr := route.NextHop
+	if netwAddr == nil {
+		netwAddr = pdu3.DstAddr
+	}
+
+	dstAddr, err := arpMech.ResolveFunc(netwAddr, route.Port)
 	if err != nil {
 		log.ErrorLog("routing/IP_PACKET_HANDLER",
 			"Failed to resolve link layer address: ", err)
@@ -218,6 +300,7 @@ func (m *IPv4Routing) ipPacketHandler(rw of.ResponseWriter, r *of.Request) {
 	// TODO: set expire timeout
 	flowMod := ofp.FlowMod{
 		Command:      ofp.FC_ADD,
+		TableID:      ofp.Table(m.tableNo),
 		BufferID:     ofp.NO_BUFFER,
 		Priority:     25,
 		Match:        match,

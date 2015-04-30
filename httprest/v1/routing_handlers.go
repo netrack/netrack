@@ -8,47 +8,48 @@ import (
 	"github.com/netrack/netrack/httputil"
 	"github.com/netrack/netrack/logging"
 	"github.com/netrack/netrack/mechanism"
+	"github.com/netrack/netrack/mechanism/mechutil"
 )
 
 func init() {
 	// Register address management HTTP API driver.
-	constructor := mech.HTTPDriverConstructorFunc(NewRouteHandler)
+	constructor := mech.HTTPDriverConstructorFunc(NewRoutingHandler)
 	mech.RegisterHTTPDriver(constructor)
 }
 
-type RouteHandler struct {
+type RoutingHandler struct {
 	mech.BaseHTTPDriver
 }
 
-func NewRouteHandler() mech.HTTPDriver {
-	return &RouteHandler{}
+func NewRoutingHandler() mech.HTTPDriver {
+	return &RoutingHandler{}
 }
 
-func (m *RouteHandler) Enable(c *mech.HTTPDriverContext) {
+func (m *RoutingHandler) Enable(c *mech.HTTPDriverContext) {
 	m.BaseHTTPDriver.Enable(c)
 
 	m.C.Mux.HandleFunc("GET", "/v1/datapaths/{dpid}/routes", m.indexHandler)
 	m.C.Mux.HandleFunc("PUT", "/v1/datapaths/{dpid}/routes", m.createHandler)
 	m.C.Mux.HandleFunc("DELETE", "/v1/datapaths/{dpid}/routes", m.destroyHandler)
 
-	log.InfoLog("route_handlers/ENABLE_HOOK",
+	log.InfoLog("routing_handlers/ENABLE_HOOK",
 		"Route handlers enabled")
 }
 
-func (h *RouteHandler) context(rw http.ResponseWriter, r *http.Request) (*mech.MechanismContext, error) {
-	log.InfoLog("route_handlers/CONTEXT",
+func (h *RoutingHandler) context(rw http.ResponseWriter, r *http.Request) (*mech.MechanismContext, error) {
+	log.InfoLog("routing_handlers/CONTEXT",
 		"Got request to handle routes")
 
 	dpid := httputil.Param(r, "dpid")
 
 	f := WriteFormat(r)
 
-	log.DebugLog("route_handlers/CONTEXT",
+	log.DebugLog("routing_handlers/CONTEXT",
 		"Request handle routes of: ", dpid)
 
 	context, err := h.C.SwitchManager.Context(dpid)
 	if err != nil {
-		log.ErrorLog("route_handlers/CONTEXT",
+		log.ErrorLog("routing_handlers/CONTEXT",
 			"Failed to find requested datapath: ", err)
 
 		text := fmt.Sprintf("switch '%s' not found", dpid)
@@ -61,8 +62,8 @@ func (h *RouteHandler) context(rw http.ResponseWriter, r *http.Request) (*mech.M
 	return context, nil
 }
 
-func (h *RouteHandler) indexHandler(rw http.ResponseWriter, r *http.Request) {
-	log.InfoLog("route_handlers/INDEX_HANDLER",
+func (h *RoutingHandler) indexHandler(rw http.ResponseWriter, r *http.Request) {
+	log.InfoLog("routing_handlers/INDEX_HANDLER",
 		"Got request to list routing table")
 
 	wf := WriteFormat(r)
@@ -72,9 +73,9 @@ func (h *RouteHandler) indexHandler(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var routes []models.Route
+	routes := make([]models.Route, 0)
 	var routeContext mech.RouteManagerContext
-	switchContext.Route.Context(&routeContext)
+	switchContext.Routing.Context(&routeContext)
 
 	for _, route := range routeContext.Routes {
 		switchPort, _ := switchContext.Switch.PortByNumber(route.Port)
@@ -92,8 +93,8 @@ func (h *RouteHandler) indexHandler(rw http.ResponseWriter, r *http.Request) {
 	wf.Write(rw, r, routes)
 }
 
-func (h *RouteHandler) createHandler(rw http.ResponseWriter, r *http.Request) {
-	log.InfoLog("route_handlers/CREATE_HANDLER",
+func (h *RoutingHandler) createHandler(rw http.ResponseWriter, r *http.Request) {
+	log.InfoLog("routing_handlers/CREATE_HANDLER",
 		"Got request to create routes")
 
 	rf, wf := Format(r)
@@ -105,7 +106,7 @@ func (h *RouteHandler) createHandler(rw http.ResponseWriter, r *http.Request) {
 
 	var routes []models.Route
 	if err = rf.Read(rw, r, &routes); err != nil {
-		log.ErrorLog("route_handlers/CREATE_HANDLER",
+		log.ErrorLog("routing_handlers/CREATE_HANDLER",
 			"Failed to read request body: ", err)
 
 		rw.WriteHeader(http.StatusBadRequest)
@@ -120,7 +121,7 @@ func (h *RouteHandler) createHandler(rw http.ResponseWriter, r *http.Request) {
 	for _, route := range routes {
 		port, err := switchContext.Switch.PortByName(route.InterfaceName)
 		if err != nil {
-			log.ErrorLog("route_handlers/CREATE_HANDLER",
+			log.ErrorLog("routing_handlers/CREATE_HANDLER",
 				"Failed to find requested interface: ", err)
 
 			text := fmt.Sprintf("interface '%s' not found", route.InterfaceName)
@@ -131,14 +132,15 @@ func (h *RouteHandler) createHandler(rw http.ResponseWriter, r *http.Request) {
 		}
 
 		context.Routes = append(context.Routes, &mech.RouteContext{
+			Type:    string(mechutil.StaticRoute),
 			Network: route.Network,
 			NextHop: route.NextHop,
 			Port:    port.Number,
 		})
 	}
 
-	if err = switchContext.Route.UpdateRoutes(context); err != nil {
-		log.ErrorLog("route_handlers/CREATE_ROUTE",
+	if err = switchContext.Routing.UpdateRoutes(context); err != nil {
+		log.ErrorLog("routing_handlers/CREATE_ROUTE",
 			"Failed to create routes: ", err)
 
 		rw.WriteHeader(http.StatusConflict)
@@ -149,7 +151,7 @@ func (h *RouteHandler) createHandler(rw http.ResponseWriter, r *http.Request) {
 	rw.WriteHeader(http.StatusOK)
 }
 
-func (h *RouteHandler) destroyHandler(rw http.ResponseWriter, r *http.Request) {
-	log.InfoLog("route_handlers/DESTROY_HANDLER",
+func (h *RoutingHandler) destroyHandler(rw http.ResponseWriter, r *http.Request) {
+	log.InfoLog("routing_handlers/DESTROY_HANDLER",
 		"Got request to destroy routes")
 }

@@ -101,7 +101,7 @@ func (h *NetworkHandler) indexHandler(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var networks []models.Network
+	networks := make([]models.Network, 0)
 	var network mech.NetworkManagerContext
 
 	if err = context.Network.Context(&network); err != nil {

@@ -201,7 +201,74 @@ func (m *IPv4Routing) UpdateRoute(context *mech.RouteContext) error {
 }
 
 func (m *IPv4Routing) DeleteRoute(context *mech.RouteContext) error {
-	return nil
+	nldriver, err := m.C.Network.Driver()
+	if err != nil {
+		log.InfoLog("routing/DELETE_ROUTE",
+			"Network layer driver is not intialized: ", err)
+		return err
+	}
+
+	network, err := nldriver.ParseAddr(context.Network)
+	if err != nil {
+		log.ErrorLog("routing/DELETE_ROUTE",
+			"Failed to parse network string: ", err)
+		return err
+	}
+
+	nextHop, err := nldriver.ParseAddr(context.NextHop)
+	if context.NextHop != "" && err != nil {
+		log.ErrorLog("routing/DELETE_ROUTE",
+			"Failed to parse next-hop string: ", err)
+		return err
+	}
+
+	// Update routing table with new address
+	evicted := m.routeTable.Evict(mechutil.RouteEntry{
+		Network: network,
+		NextHop: nextHop,
+		Port:    context.Port,
+	})
+
+	if !evicted {
+		log.ErrorLog("routing/DELETE_ROUTE",
+			"Failed to delete specified route: ", err)
+		return nil
+	}
+
+	// Match IPv4 packets of specified route.
+	match := ofp.Match{ofp.MT_OXM, []ofp.OXM{
+		ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_ETH_TYPE, of.Bytes(iana.ETHT_IPV4), nil},
+		ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_IPV4_DST, network.Bytes(), network.Mask()},
+	}}
+
+	flowMod := ofp.FlowMod{
+		Command:  ofp.FC_DELETE,
+		TableID:  ofp.Table(m.tableNo),
+		BufferID: ofp.NO_BUFFER,
+		OutPort:  ofp.P_ANY,
+		OutGroup: ofp.G_ANY,
+		Match:    match,
+	}
+
+	r, err := of.NewRequest(of.T_FLOW_MOD, of.NewReader(&flowMod))
+	if err != nil {
+		log.ErrorLog("routing/DELETE_ROUTES",
+			"Failed to create new ofp_flow_mod request: ", err)
+		return err
+	}
+
+	if err = m.C.Switch.Conn().Send(r); err != nil {
+		log.ErrorLog("routing/DELETE_ROUTES",
+			"Failed to send ofp_flow_mode request: ", err)
+		return err
+	}
+
+	if err = m.C.Switch.Conn().Flush(); err != nil {
+		log.ErrorLog("routing/DELETE_ROUTES",
+			"Failed to flush requests: ", err)
+	}
+
+	return err
 }
 
 func (m *IPv4Routing) packetInHandler(rw of.ResponseWriter, r *of.Request) {

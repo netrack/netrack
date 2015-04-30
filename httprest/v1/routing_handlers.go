@@ -93,25 +93,25 @@ func (h *RoutingHandler) indexHandler(rw http.ResponseWriter, r *http.Request) {
 	wf.Write(rw, r, routes)
 }
 
-func (h *RoutingHandler) createHandler(rw http.ResponseWriter, r *http.Request) {
-	log.InfoLog("routing_handlers/CREATE_HANDLER",
-		"Got request to create routes")
+func (h *RoutingHandler) alter(rw http.ResponseWriter, r *http.Request) (*mech.MechanismContext, *mech.RouteManagerContext, error) {
+	log.InfoLog("routing_handlers/ALTER_ROUTES",
+		"Got request to alter routes")
 
 	rf, wf := Format(r)
 
 	switchContext, err := h.context(rw, r)
 	if err != nil {
-		return
+		return nil, nil, err
 	}
 
 	var routes []models.Route
 	if err = rf.Read(rw, r, &routes); err != nil {
-		log.ErrorLog("routing_handlers/CREATE_HANDLER",
+		log.ErrorLog("routing_handlers/ALTER_ROUTES",
 			"Failed to read request body: ", err)
 
 		rw.WriteHeader(http.StatusBadRequest)
 		wf.Write(rw, r, models.Error{"failed to read request body"})
-		return
+		return nil, nil, err
 	}
 
 	context := &mech.RouteManagerContext{
@@ -121,14 +121,14 @@ func (h *RoutingHandler) createHandler(rw http.ResponseWriter, r *http.Request) 
 	for _, route := range routes {
 		port, err := switchContext.Switch.PortByName(route.InterfaceName)
 		if err != nil {
-			log.ErrorLog("routing_handlers/CREATE_HANDLER",
+			log.ErrorLog("routing_handlers/ALTER_ROUTES",
 				"Failed to find requested interface: ", err)
 
 			text := fmt.Sprintf("interface '%s' not found", route.InterfaceName)
 
 			rw.WriteHeader(http.StatusConflict)
 			wf.Write(rw, r, models.Error{text})
-			return
+			return nil, nil, err
 		}
 
 		context.Routes = append(context.Routes, &mech.RouteContext{
@@ -139,8 +139,22 @@ func (h *RoutingHandler) createHandler(rw http.ResponseWriter, r *http.Request) 
 		})
 	}
 
+	return switchContext, context, nil
+}
+
+func (h *RoutingHandler) createHandler(rw http.ResponseWriter, r *http.Request) {
+	log.InfoLog("routing_handlers/CREATE_HANDLER",
+		"Got request to create routes")
+
+	switchContext, context, err := h.alter(rw, r)
+	if err != nil {
+		return
+	}
+
+	wf := WriteFormat(r)
+
 	if err = switchContext.Routing.UpdateRoutes(context); err != nil {
-		log.ErrorLog("routing_handlers/CREATE_ROUTE",
+		log.ErrorLog("routing_handlers/CREATE_HANDLER",
 			"Failed to create routes: ", err)
 
 		rw.WriteHeader(http.StatusConflict)
@@ -154,4 +168,22 @@ func (h *RoutingHandler) createHandler(rw http.ResponseWriter, r *http.Request) 
 func (h *RoutingHandler) destroyHandler(rw http.ResponseWriter, r *http.Request) {
 	log.InfoLog("routing_handlers/DESTROY_HANDLER",
 		"Got request to destroy routes")
+
+	switchContext, context, err := h.alter(rw, r)
+	if err != nil {
+		return
+	}
+
+	wf := WriteFormat(r)
+
+	if err = switchContext.Routing.DeleteRoutes(context); err != nil {
+		log.ErrorLog("routing_handlers/DESTROY_HANDLER",
+			"Failed to destroy routes: ", err)
+
+		rw.WriteHeader(http.StatusConflict)
+		wf.Write(rw, r, models.Error{"Failed update routing table"})
+		return
+	}
+
+	rw.WriteHeader(http.StatusOK)
 }

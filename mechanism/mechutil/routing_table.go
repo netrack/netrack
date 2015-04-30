@@ -65,6 +65,39 @@ func (t *RoutingTable) Populate(entry RouteEntry) error {
 	return nil
 }
 
+func (t *RoutingTable) Evict(entry RouteEntry) bool {
+	t.lock.Lock()
+	defer t.lock.Unlock()
+
+	if entry.Network == nil {
+		return false
+	}
+
+	for i, e := range t.routes {
+		if e.Network.String() != entry.Network.String() {
+			continue
+		}
+
+		if e.Port != entry.Port {
+			continue
+		}
+
+		if (e.NextHop != nil) != (entry.Network != nil) {
+			continue
+		}
+
+		checkNextHop := e.NextHop != nil && entry.NextHop != nil
+		if checkNextHop && e.NextHop.String() != entry.NextHop.String() {
+			continue
+		}
+
+		t.routes = append(t.routes[i:], t.routes[i+1:]...)
+		return true
+	}
+
+	return false
+}
+
 func (t *RoutingTable) Lookup(nladdr mech.NetworkAddr) (RouteEntry, bool) {
 	t.lock.RLock()
 	defer t.lock.RUnlock()

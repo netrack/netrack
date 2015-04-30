@@ -199,6 +199,4 @@ func (h *NetworkHandler) showHandler(rw http.ResponseWriter, r *http.Request) {
 func (h *NetworkHandler) destroyHandler(rw http.ResponseWriter, r *http.Request) {
 	log.InfoLog("network_handlers/DESTROY_HANDLER",
 		"Got request to destroy L3 address")
-
-	// driver.DeteleNework(mech.NetworkManagerContext{})
 }

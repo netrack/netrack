@@ -7,6 +7,7 @@ import (
 	"github.com/netrack/netrack/mechanism"
 	"github.com/netrack/openflow"
 	"github.com/netrack/openflow/ofp.v13"
+	"github.com/netrack/openflow/ofp.v13/ofputil"
 )
 
 const ICMPMechanismName = "ICMP#RFC792"
@@ -14,6 +15,17 @@ const ICMPMechanismName = "ICMP#RFC792"
 func init() {
 	constructor := mech.NetworkMechanismConstructorFunc(NewICMPMechanism)
 	mech.RegisterNetworkMechanism(ICMPMechanismName, constructor)
+}
+
+func EchoRequest(ipaddr []byte) ofp.Match {
+	// Match ICMP echo-request messages to created network address.
+	return ofp.Match{ofp.MT_OXM, []ofp.OXM{
+		ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_ETH_TYPE, of.Bytes(iana.ETHT_IPV4), nil},
+		//TODO: make it available for all link layer addresses.
+		ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_IPV4_DST, ipaddr, nil},
+		ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_IP_PROTO, of.Bytes(iana.IP_PROTO_ICMP), nil},
+		ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_ICMPV4_TYPE, of.Bytes(l3.ICMPT_ECHO_REQUEST), nil},
+	}}
 }
 
 type ICMPMechanism struct {
@@ -36,16 +48,6 @@ func (m *ICMPMechanism) Enable(c *mech.MechanismContext) {
 }
 
 func (m *ICMPMechanism) UpdateNetwork(context *mech.NetworkContext) error {
-	// Match ICMP echo-request messages to created network address.
-	match := ofp.Match{ofp.MT_OXM, []ofp.OXM{
-		ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_ETH_TYPE, of.Bytes(iana.ETHT_IPV4), nil},
-		//TODO: make it available for all link layer addresses.
-		//ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_ETH_DST, lladdr.Bytes(), nil},
-		ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_IPV4_DST, context.Addr.Bytes(), nil},
-		ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_IP_PROTO, of.Bytes(iana.IP_PROTO_ICMP), nil},
-		ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_ICMPV4_TYPE, of.Bytes(l3.ICMPT_ECHO_REQUEST), nil},
-	}}
-
 	// Send ICMP message to the controller
 	instructions := ofp.Instructions{ofp.InstructionActions{
 		ofp.IT_APPLY_ACTIONS,
@@ -53,12 +55,12 @@ func (m *ICMPMechanism) UpdateNetwork(context *mech.NetworkContext) error {
 	}}
 
 	// Insert flow into ICMP-allocated table.
-	req, err := of.NewRequest(of.T_FLOW_MOD, of.NewReader(&ofp.FlowMod{
+	flowMod, err := of.NewRequest(of.T_FLOW_MOD, of.NewReader(&ofp.FlowMod{
 		Command:      ofp.FC_ADD,
 		TableID:      ofp.Table(m.tableNo),
 		BufferID:     ofp.NO_BUFFER,
 		Priority:     30, // Use non-zero priority
-		Match:        match,
+		Match:        EchoRequest(context.Addr.Bytes()),
 		Instructions: instructions,
 	}))
 
@@ -67,21 +69,27 @@ func (m *ICMPMechanism) UpdateNetwork(context *mech.NetworkContext) error {
 			"Failed to create a new ofp_flow_mod request: ", err)
 	}
 
-	if err = m.C.Switch.Conn().Send(req); err != nil {
+	if err = of.Send(m.C.Switch.Conn(), flowMod); err != nil {
 		log.ErrorLogf("icmp/UPDATE_NETWORK",
-			"Failed to send ofp_flow_mod request:", err)
-	}
-
-	if err = m.C.Switch.Conn().Flush(); err != nil {
-		log.ErrorLog("icmp/UPDATE_NETWORK",
-			"Failed to flush requests: ", err)
+			"Failed to send request:", err)
 	}
 
 	return err
 }
 
 func (m *ICMPMechanism) DeleteNetwork(context *mech.NetworkContext) error {
-	return nil
+	// Flush ICMP flow for specified address (if any).
+	err := of.Send(m.C.Switch.Conn(), ofputil.FlowFlush(
+		ofp.Table(m.tableNo),
+		EchoRequest(context.Addr.Bytes()),
+	))
+
+	if err != nil {
+		log.ErrorLog("icmp/DELETE_NETWORK",
+			"Failed to send requests: ", err)
+	}
+
+	return err
 }
 
 func (m *ICMPMechanism) packetInHandler(rw of.ResponseWriter, r *of.Request) {

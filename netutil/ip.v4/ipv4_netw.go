@@ -52,15 +52,27 @@ func (m *IPMechanism) UpdateNetwork(context *mech.NetworkContext) error {
 	}
 
 	// Update routing table with new address
-	ipv4Routing.UpdateRoute(&mech.RouteContext{
+	return ipv4Routing.UpdateRoute(&mech.RouteContext{
 		Type:    string(mechutil.ConnectedRoute),
 		Network: context.Addr.String(),
 		Port:    context.Port,
 	})
-
-	return nil
 }
 
 func (m *IPMechanism) DeleteNetwork(context *mech.NetworkContext) error {
-	return nil
+	var ipv4Routing IPv4Routing
+
+	err := m.C.Routing.Mechanism(IPv4RoutingName, &ipv4Routing)
+	if err != nil {
+		log.ErrorLog("ipv4/UPDATE_NETWORK",
+			"IPv4 routing mechanism is not found: ", err)
+		return err
+	}
+
+	// Update routing table with new address
+	return ipv4Routing.DeleteRoute(&mech.RouteContext{
+		Type:    string(mechutil.ConnectedRoute),
+		Network: context.Addr.String(),
+		Port:    context.Port,
+	})
 }

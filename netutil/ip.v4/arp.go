@@ -127,7 +127,7 @@ func (m *ARPMechanism) Activate() {
 	instructions := ofp.Instructions{ofp.InstructionGotoTable{ofp.Table(m.tableNo)}}
 
 	// Insert flow into 0 table.
-	r, err := of.NewRequest(of.T_FLOW_MOD, of.NewReader(&ofp.FlowMod{
+	flowModGoto, err := of.NewRequest(of.T_FLOW_MOD, of.NewReader(&ofp.FlowMod{
 		Command:      ofp.FC_ADD,
 		BufferID:     ofp.NO_BUFFER,
 		Priority:     20,
@@ -141,35 +141,18 @@ func (m *ARPMechanism) Activate() {
 		return
 	}
 
-	if err = m.C.Switch.Conn().Send(r); err != nil {
-		log.ErrorLog("arp/ACTIVATE_HOOK",
-			"Failed to send request: ", err)
-		return
-	}
-
-	// Create black-hole rule.
-	r, err = of.NewRequest(of.T_FLOW_MOD, of.NewReader(&ofp.FlowMod{
-		TableID:  ofp.Table(m.tableNo),
-		Command:  ofp.FC_ADD,
-		BufferID: ofp.NO_BUFFER,
-		Match:    ofp.Match{ofp.MT_OXM, nil},
-	}))
+	err = of.Send(m.C.Switch.Conn(),
+		// Flush flows from table before using it.
+		ofputil.TableFlush(ofp.Table(m.tableNo)),
+		// Create black-hole rule for non-matching packets.
+		ofputil.FlowDrop(ofp.Table(m.tableNo)),
+		// Redirect all ARP requests to allocated table to process.
+		flowModGoto,
+	)
 
 	if err != nil {
 		log.ErrorLog("arp/ACTIVATE_HOOK",
-			"Failed to create ofp_flow_mod request: ", err)
-		return
-	}
-
-	if err = m.C.Switch.Conn().Send(r); err != nil {
-		log.ErrorLog("arp/ACTIVATE_HOOK",
-			"Failed to send request: ", err)
-		return
-	}
-
-	if err = m.C.Switch.Conn().Flush(); err != nil {
-		log.ErrorLog("arp/ACTIVATE_HOOK",
-			"Failed to flush requests: ", err)
+			"Failed to send requests: ", err)
 	}
 }
 
@@ -198,7 +181,7 @@ func (m *ARPMechanism) UpdateNetwork(context *mech.NetworkContext) error {
 		ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_ETH_TYPE, of.Bytes(iana.ETHT_ARP), nil},
 		ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_ARP_OP, of.Bytes(l3.ARPOT_REQUEST), nil},
 		ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_ARP_THA, l2.HWUnspec, nil},
-		ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_ARP_TPA, context.Addr.Bytes(), context.Addr.Mask()},
+		ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_ARP_TPA, context.Addr.Bytes(), nil},
 	}}
 
 	// Send all such packets to controller
@@ -244,7 +227,7 @@ func (m *ARPMechanism) UpdateNetwork(context *mech.NetworkContext) error {
 		ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_ETH_TYPE, of.Bytes(iana.ETHT_ARP), nil},
 		ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_ETH_DST, lladdr.Bytes(), nil},
 		ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_ARP_OP, of.Bytes(l3.ARPOT_REPLY), nil},
-		ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_ARP_TPA, context.Addr.Bytes(), context.Addr.Mask()},
+		ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_ARP_TPA, context.Addr.Bytes(), nil},
 	}}
 
 	// Send all such packets to controller
@@ -285,6 +268,27 @@ func (m *ARPMechanism) UpdateNetwork(context *mech.NetworkContext) error {
 	if err = m.C.Switch.Conn().Flush(); err != nil {
 		log.ErrorLog("arp/UPDATE_NETWORK_FLUSH",
 			"Failed to flush requests: ", err)
+	}
+
+	return err
+}
+
+func (m *ARPMechanism) DeleteNetwork(context *mech.NetworkContext) error {
+	match := ofp.Match{ofp.MT_OXM, []ofp.OXM{
+		ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_ETH_TYPE, of.Bytes(iana.ETHT_ARP), nil},
+		ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_ARP_OP, of.Bytes(l3.ARPOT_REQUEST), nil},
+		ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_ARP_THA, l2.HWUnspec, nil},
+		ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_ARP_TPA, context.Addr.Bytes(), nil},
+	}}
+
+	// Flush ICMP flow for specified address (if any).
+	err := of.Send(m.C.Switch.Conn(),
+		ofputil.FlowFlush(ofp.Table(m.tableNo), match),
+	)
+
+	if err != nil {
+		log.ErrorLog("arp/DELETE_NETWORK",
+			"Failed to send requests: ", err)
 	}
 
 	return err

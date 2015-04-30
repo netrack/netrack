@@ -74,7 +74,7 @@ func (m *IPv4Routing) Activate() {
 	instructions := ofp.Instructions{ofp.InstructionGotoTable{ofp.Table(m.tableNo)}}
 
 	// Insert flow into 0 table.
-	r, err := of.NewRequest(of.T_FLOW_MOD, of.NewReader(&ofp.FlowMod{
+	flowModGoto, err := of.NewRequest(of.T_FLOW_MOD, of.NewReader(&ofp.FlowMod{
 		Command:      ofp.FC_ADD,
 		BufferID:     ofp.NO_BUFFER,
 		Priority:     10,
@@ -89,38 +89,18 @@ func (m *IPv4Routing) Activate() {
 		return
 	}
 
-	if err = m.C.Switch.Conn().Send(r); err != nil {
-		log.ErrorLog("routing/ACTIVATE_HOOK",
-			"Failed to send request: ", err)
-
-		return
-	}
-
-	// Create black-hole rule.
-	r, err = of.NewRequest(of.T_FLOW_MOD, of.NewReader(&ofp.FlowMod{
-		TableID:  ofp.Table(m.tableNo),
-		Command:  ofp.FC_ADD,
-		BufferID: ofp.NO_BUFFER,
-		Match:    ofp.Match{ofp.MT_OXM, nil},
-	}))
+	err = of.Send(m.C.Switch.Conn(),
+		// Flush flows from table before using it.
+		ofputil.TableFlush(ofp.Table(m.tableNo)),
+		// Create black-hole rule for non-matching packets.
+		ofputil.FlowDrop(ofp.Table(m.tableNo)),
+		// Redirect all ARP requests to allocated table to process.
+		flowModGoto,
+	)
 
 	if err != nil {
 		log.ErrorLog("routing/ACTIVATE_HOOK",
-			"Failed to create ofp_flow_mod request: ", err)
-
-		return
-	}
-
-	if err = m.C.Switch.Conn().Send(r); err != nil {
-		log.ErrorLog("routing/ACTIVATE_HOOK",
-			"Failed to send request: ", err)
-
-		return
-	}
-
-	if err = m.C.Switch.Conn().Flush(); err != nil {
-		log.ErrorLog("routing/ACTIVATE_HOOK",
-			"Failed to flush requests: ", err)
+			"Failed to send requests: ", err)
 	}
 }
 
@@ -241,31 +221,13 @@ func (m *IPv4Routing) DeleteRoute(context *mech.RouteContext) error {
 		ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_IPV4_DST, network.Bytes(), network.Mask()},
 	}}
 
-	flowMod := ofp.FlowMod{
-		Command:  ofp.FC_DELETE,
-		TableID:  ofp.Table(m.tableNo),
-		BufferID: ofp.NO_BUFFER,
-		OutPort:  ofp.P_ANY,
-		OutGroup: ofp.G_ANY,
-		Match:    match,
-	}
+	err = of.Send(m.C.Switch.Conn(),
+		ofputil.FlowFlush(ofp.Table(m.tableNo), match),
+	)
 
-	r, err := of.NewRequest(of.T_FLOW_MOD, of.NewReader(&flowMod))
 	if err != nil {
 		log.ErrorLog("routing/DELETE_ROUTES",
-			"Failed to create new ofp_flow_mod request: ", err)
-		return err
-	}
-
-	if err = m.C.Switch.Conn().Send(r); err != nil {
-		log.ErrorLog("routing/DELETE_ROUTES",
-			"Failed to send ofp_flow_mode request: ", err)
-		return err
-	}
-
-	if err = m.C.Switch.Conn().Flush(); err != nil {
-		log.ErrorLog("routing/DELETE_ROUTES",
-			"Failed to flush requests: ", err)
+			"Failed to send requests: ", err)
 	}
 
 	return err

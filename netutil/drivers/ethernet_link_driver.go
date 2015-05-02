@@ -11,7 +11,7 @@ import (
 	"github.com/netrack/netrack/mechanism"
 )
 
-const EthernetDriverName = "ETHERNET-II#802.3"
+const EthernetDriverName = "ieee-802.3"
 
 func init() {
 	constructor := mech.LinkDriverConstructorFunc(NewEthernetLinkDriver)

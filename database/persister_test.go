@@ -37,7 +37,7 @@ func TestDBRead(t *testing.T) {
 
 		err = DefaultDB.Read(FakeModel, "3", &testrecord)
 		if err != ErrNoRows {
-			t.Fatalf("Failed to repot error on invalid id")
+			t.Fatal("Failed to repot error on invalid id:", err)
 		}
 	})
 }

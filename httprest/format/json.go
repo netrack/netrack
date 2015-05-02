@@ -17,16 +17,15 @@ func init() {
 type JSONFormatter struct{}
 
 // Read implements Formatter interface.
-func (f *JSONFormatter) Read(w http.ResponseWriter, r *http.Request, v interface{}) error {
-	w.Header().Add(httputil.HeaderAccept, httputil.TypeApplicationJSON)
-
+func (f *JSONFormatter) Read(r *http.Request, v interface{}) error {
 	decoder := json.NewDecoder(r.Body)
 	return decoder.Decode(v)
 }
 
 // Write implements Formatter interface.
-func (f *JSONFormatter) Write(w http.ResponseWriter, r *http.Request, v interface{}) error {
-	w.Header().Add(httputil.HeaderContentType, httputil.TypeApplicationJSON)
+func (f *JSONFormatter) Write(w http.ResponseWriter, v interface{}, status int) error {
+	w.Header().Set(httputil.HeaderContentType, httputil.TypeApplicationJSON)
+	w.WriteHeader(status)
 
 	encoder := json.NewEncoder(w)
 	return encoder.Encode(v)

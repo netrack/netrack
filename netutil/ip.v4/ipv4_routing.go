@@ -10,7 +10,7 @@ import (
 	"github.com/netrack/openflow/ofp.v13/ofputil"
 )
 
-const IPv4RoutingName = "IPv4#RFC791"
+const IPv4RoutingName = "ipv4"
 
 func init() {
 	constructor := mech.RouteMechanismConstructorFunc(NewIPv4Routing)

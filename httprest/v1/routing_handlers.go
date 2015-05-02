@@ -54,8 +54,7 @@ func (h *RoutingHandler) context(rw http.ResponseWriter, r *http.Request) (*mech
 
 		text := fmt.Sprintf("switch '%s' not found", dpid)
 
-		rw.WriteHeader(http.StatusNotFound)
-		f.Write(rw, r, models.Error{text})
+		f.Write(rw, models.Error{text}, http.StatusNotFound)
 		return nil, fmt.Errorf(text)
 	}
 
@@ -89,8 +88,7 @@ func (h *RoutingHandler) indexHandler(rw http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	rw.WriteHeader(http.StatusOK)
-	wf.Write(rw, r, routes)
+	wf.Write(rw, routes, http.StatusOK)
 }
 
 func (h *RoutingHandler) alter(rw http.ResponseWriter, r *http.Request) (*mech.MechanismContext, *mech.RouteManagerContext, error) {
@@ -105,12 +103,12 @@ func (h *RoutingHandler) alter(rw http.ResponseWriter, r *http.Request) (*mech.M
 	}
 
 	var routes []models.Route
-	if err = rf.Read(rw, r, &routes); err != nil {
+	if err = rf.Read(r, &routes); err != nil {
 		log.ErrorLog("routing_handlers/ALTER_ROUTES",
 			"Failed to read request body: ", err)
 
-		rw.WriteHeader(http.StatusBadRequest)
-		wf.Write(rw, r, models.Error{"failed to read request body"})
+		body := models.Error{"failed to read request body"}
+		wf.Write(rw, body, http.StatusBadRequest)
 		return nil, nil, err
 	}
 
@@ -126,8 +124,7 @@ func (h *RoutingHandler) alter(rw http.ResponseWriter, r *http.Request) (*mech.M
 
 			text := fmt.Sprintf("interface '%s' not found", route.InterfaceName)
 
-			rw.WriteHeader(http.StatusConflict)
-			wf.Write(rw, r, models.Error{text})
+			wf.Write(rw, models.Error{text}, http.StatusConflict)
 			return nil, nil, err
 		}
 
@@ -157,8 +154,8 @@ func (h *RoutingHandler) createHandler(rw http.ResponseWriter, r *http.Request) 
 		log.ErrorLog("routing_handlers/CREATE_HANDLER",
 			"Failed to create routes: ", err)
 
-		rw.WriteHeader(http.StatusConflict)
-		wf.Write(rw, r, models.Error{"Failed update routing table"})
+		body := models.Error{"Failed update routing table"}
+		wf.Write(rw, body, http.StatusConflict)
 		return
 	}
 
@@ -180,8 +177,8 @@ func (h *RoutingHandler) destroyHandler(rw http.ResponseWriter, r *http.Request)
 		log.ErrorLog("routing_handlers/DESTROY_HANDLER",
 			"Failed to destroy routes: ", err)
 
-		rw.WriteHeader(http.StatusConflict)
-		wf.Write(rw, r, models.Error{"Failed update routing table"})
+		body := models.Error{"Failed update routing table"}
+		wf.Write(rw, body, http.StatusConflict)
 		return
 	}
 

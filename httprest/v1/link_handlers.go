@@ -59,8 +59,7 @@ func (h *LinkHandler) context(rw http.ResponseWriter, r *http.Request) (*mech.Me
 
 		text := fmt.Sprintf("switch '%s' not found", dpid)
 
-		rw.WriteHeader(http.StatusNotFound)
-		f.Write(rw, r, models.Error{text})
+		f.Write(rw, models.Error{text}, http.StatusNotFound)
 		return nil, nil, fmt.Errorf(text)
 	}
 
@@ -71,8 +70,7 @@ func (h *LinkHandler) context(rw http.ResponseWriter, r *http.Request) (*mech.Me
 
 		text := fmt.Sprintf("switch '%s' does not have '%s' interface", dpid, iface)
 
-		rw.WriteHeader(http.StatusNotFound)
-		f.Write(rw, r, models.Error{text})
+		f.Write(rw, models.Error{text}, http.StatusNotFound)
 		return nil, nil, fmt.Errorf(text)
 	}
 
@@ -96,8 +94,7 @@ func (h *LinkHandler) indexHandler(rw http.ResponseWriter, r *http.Request) {
 
 		text := fmt.Sprintf("switch '%s' not found", dpid)
 
-		rw.WriteHeader(http.StatusNotFound)
-		wf.Write(rw, r, models.Error{text})
+		wf.Write(rw, models.Error{text}, http.StatusNotFound)
 		return
 	}
 
@@ -110,8 +107,7 @@ func (h *LinkHandler) indexHandler(rw http.ResponseWriter, r *http.Request) {
 
 		text := fmt.Sprintf("failed to access database")
 
-		rw.WriteHeader(http.StatusServiceUnavailable)
-		wf.Write(rw, r, models.Error{text})
+		wf.Write(rw, models.Error{text}, http.StatusNotFound)
 		return
 	}
 
@@ -126,8 +122,7 @@ func (h *LinkHandler) indexHandler(rw http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	rw.WriteHeader(http.StatusOK)
-	wf.Write(rw, r, links)
+	wf.Write(rw, links, http.StatusOK)
 }
 
 func (h *LinkHandler) createHandler(rw http.ResponseWriter, r *http.Request) {
@@ -142,12 +137,12 @@ func (h *LinkHandler) createHandler(rw http.ResponseWriter, r *http.Request) {
 	}
 
 	var link models.Link
-	if err = rf.Read(rw, r, &link); err != nil {
+	if err = rf.Read(r, &link); err != nil {
 		log.ErrorLog("link_handlers/CREATE_HANDLER",
 			"Failed to read request body: ", err)
 
-		rw.WriteHeader(http.StatusBadRequest)
-		wf.Write(rw, r, models.Error{"failed to read request body"})
+		body := models.Error{"failed to read request body"}
+		wf.Write(rw, body, http.StatusBadRequest)
 		return
 	}
 
@@ -163,8 +158,8 @@ func (h *LinkHandler) createHandler(rw http.ResponseWriter, r *http.Request) {
 		log.ErrorLog("link_handlers/CREATE_HANDLER",
 			"Failed to createa a new L2 address: ", err)
 
-		rw.WriteHeader(http.StatusConflict)
-		wf.Write(rw, r, models.Error{"failed update link"})
+		body := models.Error{"failed update link"}
+		wf.Write(rw, body, http.StatusConflict)
 		return
 	}
 
@@ -186,14 +181,15 @@ func (h *LinkHandler) showHandler(rw http.ResponseWriter, r *http.Request) {
 	context.Link.Context(&link)
 	linkPort := link.Port(switchPort.Number)
 
-	// Return interface link data.
-	rw.WriteHeader(http.StatusOK)
-	wf.Write(rw, r, models.Link{
+	body := models.Link{
 		Encapsulation: models.NullString(link.Driver),
 		Addr:          models.NullString(linkPort.Addr),
 		InterfaceName: switchPort.Name,
 		Interface:     switchPort.Number,
-	})
+	}
+
+	// Return interface link data.
+	wf.Write(rw, body, http.StatusOK)
 }
 
 func (h *LinkHandler) destroyHandler(rw http.ResponseWriter, r *http.Request) {

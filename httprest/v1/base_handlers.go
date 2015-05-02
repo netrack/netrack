@@ -44,9 +44,9 @@ func (h *BaseHandler) acceptFilter(rw http.ResponseWriter, r *http.Request) {
 			"Failed to select Accept formatter for request: ", err)
 
 		formats := strings.Join(format.FormatNameList(), ", ")
+		body := models.Error{fmt.Sprintf("only '%s' are acceptable", formats)}
 
-		rw.WriteHeader(http.StatusNotAcceptable)
-		f.Write(rw, r, models.Error{fmt.Sprintf("only '%s' are acceptable", formats)})
+		f.Write(rw, body, http.StatusNotAcceptable)
 	}
 }
 
@@ -61,8 +61,8 @@ func (h *BaseHandler) contentFilter(rw http.ResponseWriter, r *http.Request) {
 			"Failed to select ContentType formatter for request: ", err)
 
 		formats := strings.Join(format.FormatNameList(), ", ")
+		body := models.Error{fmt.Sprintf("only '%s' are supported", formats)}
 
-		rw.WriteHeader(http.StatusUnsupportedMediaType)
-		f.Write(rw, r, models.Error{fmt.Sprintf("only '%s' are supported", formats)})
+		f.Write(rw, body, http.StatusUnsupportedMediaType)
 	}
 }

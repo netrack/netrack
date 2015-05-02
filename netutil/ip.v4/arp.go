@@ -16,7 +16,7 @@ import (
 	"github.com/netrack/openflow/ofp.v13/ofputil"
 )
 
-const ARPMechanismName = "ARP#RFC826"
+const ARPMechanismName = "arp"
 
 func init() {
 	constructor := mech.NetworkMechanismConstructorFunc(NewARPMechanism)
@@ -178,10 +178,10 @@ func (m *ARPMechanism) UpdateNetwork(context *mech.NetworkContext) error {
 
 	// Match broadcast ARP requests to resolve updated address.
 	match := ofp.Match{ofp.MT_OXM, []ofp.OXM{
-		ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_ETH_TYPE, of.Bytes(iana.ETHT_ARP), nil},
-		ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_ARP_OP, of.Bytes(l3.ARPOT_REQUEST), nil},
-		ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_ARP_THA, l2.HWUnspec, nil},
-		ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_ARP_TPA, context.Addr.Bytes(), nil},
+		ofputil.EthType(uint16(iana.ETHT_ARP), nil),
+		ofputil.ARPOpType(uint16(l3.ARPOT_REQUEST), nil),
+		ofputil.ARPTargetHWAddr(l2.HWUnspec, nil),
+		ofputil.ARPTargetProtoAddr(context.Addr.Bytes(), nil),
 	}}
 
 	// Send all such packets to controller
@@ -224,10 +224,10 @@ func (m *ARPMechanism) UpdateNetwork(context *mech.NetworkContext) error {
 
 	// Match direct messages to receive ARP responses.
 	match = ofp.Match{ofp.MT_OXM, []ofp.OXM{
-		ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_ETH_TYPE, of.Bytes(iana.ETHT_ARP), nil},
-		ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_ETH_DST, lladdr.Bytes(), nil},
-		ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_ARP_OP, of.Bytes(l3.ARPOT_REPLY), nil},
-		ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_ARP_TPA, context.Addr.Bytes(), nil},
+		ofputil.EthType(uint16(iana.ETHT_ARP), nil),
+		ofputil.EthDstAddr(lladdr.Bytes(), nil),
+		ofputil.ARPOpType(uint16(l3.ARPOT_REPLY), nil),
+		ofputil.ARPTargetProtoAddr(context.Addr.Bytes(), nil),
 	}}
 
 	// Send all such packets to controller
@@ -275,13 +275,12 @@ func (m *ARPMechanism) UpdateNetwork(context *mech.NetworkContext) error {
 
 func (m *ARPMechanism) DeleteNetwork(context *mech.NetworkContext) error {
 	match := ofp.Match{ofp.MT_OXM, []ofp.OXM{
-		ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_ETH_TYPE, of.Bytes(iana.ETHT_ARP), nil},
-		ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_ARP_OP, of.Bytes(l3.ARPOT_REQUEST), nil},
-		ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_ARP_THA, l2.HWUnspec, nil},
-		ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_ARP_TPA, context.Addr.Bytes(), nil},
+		ofputil.EthType(uint16(iana.ETHT_ARP), nil),
+		ofputil.ARPOpType(uint16(l3.ARPOT_REQUEST), nil),
+		ofputil.ARPTargetHWAddr(l2.HWUnspec, nil),
+		ofputil.ARPTargetProtoAddr(context.Addr.Bytes(), nil),
 	}}
 
-	// Flush ICMP flow for specified address (if any).
 	err := of.Send(m.C.Switch.Conn(),
 		ofputil.FlowFlush(ofp.Table(m.tableNo), match),
 	)

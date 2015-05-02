@@ -10,7 +10,7 @@ import (
 	"github.com/netrack/netrack/mechanism"
 )
 
-const IPv4DriverName = "IPv4#RFC791"
+const IPv4DriverName = "ipv4"
 
 var IPv4HostMask = net.IPMask{255, 255, 255, 255}
 

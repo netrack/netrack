@@ -6,7 +6,7 @@ import (
 	"github.com/netrack/netrack/mechanism/mechutil"
 )
 
-const IPv4MechanismName = "IPv4#RFC791"
+const IPv4MechanismName = "ipv4"
 
 func init() {
 	constructor := mech.NetworkMechanismConstructorFunc(NewIPMechanism)

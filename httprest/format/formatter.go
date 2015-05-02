@@ -17,14 +17,14 @@ var (
 // that can marshal itself into a some form.
 type WriteFormatter interface {
 	// Write writes data in a specific format to response writer.
-	Write(http.ResponseWriter, *http.Request, interface{}) error
+	Write(http.ResponseWriter, interface{}, int) error
 }
 
 // Unmarshaler is the interface implemented by an object
 // that can unmarshal a representation of itself.
 type ReadFormatter interface {
 	// Read reads data in a specific format from request.
-	Read(http.ResponseWriter, *http.Request, interface{}) error
+	Read(*http.Request, interface{}) error
 }
 
 // ReadWriteFormatter is the interface implemented by an object that

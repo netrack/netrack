@@ -10,7 +10,7 @@ import (
 	"github.com/netrack/openflow/ofp.v13/ofputil"
 )
 
-const ICMPMechanismName = "ICMP#RFC792"
+const ICMPMechanismName = "icmp"
 
 func init() {
 	constructor := mech.NetworkMechanismConstructorFunc(NewICMPMechanism)

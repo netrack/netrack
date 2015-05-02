@@ -59,8 +59,7 @@ func (h *NetworkHandler) context(rw http.ResponseWriter, r *http.Request) (*mech
 
 		text := fmt.Sprintf("switch '%s' not found", dpid)
 
-		rw.WriteHeader(http.StatusNotFound)
-		f.Write(rw, r, models.Error{text})
+		f.Write(rw, models.Error{text}, http.StatusNotFound)
 		return nil, nil, fmt.Errorf(text)
 	}
 
@@ -71,8 +70,7 @@ func (h *NetworkHandler) context(rw http.ResponseWriter, r *http.Request) (*mech
 
 		text := fmt.Sprintf("switch '%s' does not have '%s' interface", dpid, iface)
 
-		rw.WriteHeader(http.StatusNotFound)
-		f.Write(rw, r, models.Error{text})
+		f.Write(rw, models.Error{text}, http.StatusNotFound)
 		return nil, nil, fmt.Errorf(text)
 	}
 
@@ -96,8 +94,7 @@ func (h *NetworkHandler) indexHandler(rw http.ResponseWriter, r *http.Request) {
 
 		text := fmt.Sprintf("switch '%s' not found", dpid)
 
-		rw.WriteHeader(http.StatusNotFound)
-		wf.Write(rw, r, models.Error{text})
+		wf.Write(rw, models.Error{text}, http.StatusNotFound)
 		return
 	}
 
@@ -110,8 +107,7 @@ func (h *NetworkHandler) indexHandler(rw http.ResponseWriter, r *http.Request) {
 
 		text := fmt.Sprintf("failed to access database")
 
-		rw.WriteHeader(http.StatusServiceUnavailable)
-		wf.Write(rw, r, models.Error{text})
+		wf.Write(rw, models.Error{text}, http.StatusServiceUnavailable)
 		return
 	}
 
@@ -126,8 +122,7 @@ func (h *NetworkHandler) indexHandler(rw http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	rw.WriteHeader(http.StatusOK)
-	wf.Write(rw, r, networks)
+	wf.Write(rw, networks, http.StatusOK)
 }
 
 func (h *NetworkHandler) createHandler(rw http.ResponseWriter, r *http.Request) {
@@ -142,12 +137,12 @@ func (h *NetworkHandler) createHandler(rw http.ResponseWriter, r *http.Request) 
 	}
 
 	var network models.Network
-	if err = rf.Read(rw, r, &network); err != nil {
+	if err = rf.Read(r, &network); err != nil {
 		log.ErrorLog("network_handlers/CREATE_HANDLER",
 			"Failed to read request body: ", err)
 
-		rw.WriteHeader(http.StatusBadRequest)
-		wf.Write(rw, r, models.Error{"failed to read request body"})
+		body := models.Error{"failed to read request body"}
+		wf.Write(rw, body, http.StatusBadRequest)
 		return
 	}
 
@@ -163,8 +158,8 @@ func (h *NetworkHandler) createHandler(rw http.ResponseWriter, r *http.Request) 
 		log.ErrorLog("network_handlers/CREATE_HANDLER",
 			"Failed to createa a new L3 address: ", err)
 
-		rw.WriteHeader(http.StatusConflict)
-		wf.Write(rw, r, models.Error{"failed update network"})
+		body := models.Error{"failed update network"}
+		wf.Write(rw, body, http.StatusConflict)
 		return
 	}
 
@@ -187,13 +182,14 @@ func (h *NetworkHandler) showHandler(rw http.ResponseWriter, r *http.Request) {
 	networkPort := network.Port(switchPort.Number)
 
 	// Return interface network data.
-	rw.WriteHeader(http.StatusOK)
-	wf.Write(rw, r, models.Network{
+	body := models.Network{
 		Encapsulation: models.NullString(network.Driver),
 		Addr:          models.NullString(networkPort.Addr),
 		InterfaceName: switchPort.Name,
 		Interface:     switchPort.Number,
-	})
+	}
+
+	wf.Write(rw, body, http.StatusOK)
 }
 
 func (h *NetworkHandler) destroyHandler(rw http.ResponseWriter, r *http.Request) {
@@ -216,8 +212,8 @@ func (h *NetworkHandler) destroyHandler(rw http.ResponseWriter, r *http.Request)
 		log.ErrorLog("network_handlers/DELETE_HANDLER",
 			"Failed to delete network layer address: ", err)
 
-		rw.WriteHeader(http.StatusConflict)
-		wf.Write(rw, r, models.Error{"failed update network"})
+		body := models.Error{"failed update network"}
+		wf.Write(rw, body, http.StatusConflict)
 		return
 	}
 

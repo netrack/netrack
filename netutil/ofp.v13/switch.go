@@ -12,6 +12,7 @@ import (
 	"github.com/netrack/netrack/mechanism"
 	"github.com/netrack/openflow"
 	"github.com/netrack/openflow/ofp.v13"
+	"github.com/netrack/openflow/ofp.v13/ofputil"
 )
 
 var (
@@ -60,51 +61,45 @@ func (s *Switch) Boot(c of.OFPConn) error {
 	s.conn = c
 
 	// Send ofp_hello message to complete handshake.
-	r, err := of.NewRequest(of.T_HELLO, nil)
+	ofpHello, err := of.NewRequest(of.T_HELLO, nil)
 	if err != nil {
 		log.ErrorLog("switch/SWITCH_BOOT_ERR",
-			"Failed to create OpenFlow request: ", err)
-		return err
-	}
-
-	if err = c.Send(r); err != nil {
-		log.ErrorLog("switch/SWITCH_BOOT_ERR",
-			"Failed to send ofp_hello message:", err)
+			"Failed to create OpenFlow Hello request: ", err)
 		return err
 	}
 
 	// Send ofp_features_request to retrieve datapath id.
-	r, err = of.NewRequest(of.T_FEATURES_REQUEST, nil)
+	ofpFeatures, err := of.NewRequest(of.T_FEATURES_REQUEST, nil)
 	if err != nil {
 		log.ErrorLog("switch/SWITCH_BOOT_ERR",
-			"Failed to create OpenFlow request: ", err)
-		return err
-	}
-
-	if err = c.Send(r); err != nil {
-		log.ErrorLog("switch/SWITCH_BOOT_ERR",
-			"Failed to send ofp_features_request message:", err)
+			"Failed to create OpenFlow Features request: ", err)
 		return err
 	}
 
 	// Send ofp_multipart_request to retrieve port descriptions.
 	body := of.NewReader(&ofp.MultipartRequest{Type: ofp.MP_PORT_DESC})
-	r, err = of.NewRequest(of.T_MULTIPART_REQUEST, body)
+	ofpMultipart, err := of.NewRequest(of.T_MULTIPART_REQUEST, body)
 	if err != nil {
 		log.ErrorLog("switch/SWITCH_BOOT_ERR",
-			"Failed to create OpenFlow request: ", err)
+			"Failed to create OpenFlow Port Description request: ", err)
 		return err
 	}
 
-	if err = c.Send(r); err != nil {
-		log.ErrorLog("switch/SWITCH_BOOT_ERR",
-			"Failed to send ofp_multipart_request message: ", err)
-		return err
-	}
+	err = of.Send(c,
+		ofpHello,
+		ofpFeatures,
+		ofpMultipart,
+		// Clear 0 table first
+		ofputil.TableFlush(0),
+		// Write black-hole rule with the lowest priority.
+		// This rule prevents flooding of the controller with
+		// dumb ofp_packet_in messages.
+		ofputil.FlowDrop(0),
+	)
 
-	if err = c.Flush(); err != nil {
-		log.ErrorLog("switch/SWITCH_BOOT_ERR",
-			"Failed to flush requests to switch: ", err)
+	if err != nil {
+		log.ErrorLog("switch/SWITCH_BOOT_SEND_ERR",
+			"Failed to send handshake messages: ", err)
 		return err
 	}
 

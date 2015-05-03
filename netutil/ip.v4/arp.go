@@ -161,6 +161,9 @@ func (m *ARPMechanism) Disable() {
 }
 
 func (m *ARPMechanism) UpdateNetwork(context *mech.NetworkContext) error {
+	log.DebugLog("arp/UPDATE_NETWORK",
+		"Got update network request")
+
 	lldriver, err := m.C.Link.Driver()
 	if err != nil {
 		log.ErrorLog("arp/UPDATE_NETWORK_LLDRIVER",
@@ -209,16 +212,10 @@ func (m *ARPMechanism) UpdateNetwork(context *mech.NetworkContext) error {
 	m.cookies.FilterFunc(&flowMod, m.arpRequestHandler)
 
 	// Insert flow into ARP-allocated flow table.
-	r, err := of.NewRequest(of.T_FLOW_MOD, of.NewReader(&flowMod))
+	arpRequest, err := of.NewRequest(of.T_FLOW_MOD, of.NewReader(&flowMod))
 	if err != nil {
 		log.ErrorLog("arp/UPDATE_NETWORK_ARP_REQUEST",
 			"Failed to create ofp_flow_mod request: ", err)
-		return err
-	}
-
-	if err = m.C.Switch.Conn().Send(r); err != nil {
-		log.ErrorLog("arp/UPDATE_NETWORK_ARP_REQUEST",
-			"Failed to send request: ", err)
 		return err
 	}
 
@@ -244,7 +241,7 @@ func (m *ARPMechanism) UpdateNetwork(context *mech.NetworkContext) error {
 		Command:      ofp.FC_ADD,
 		TableID:      ofp.Table(m.tableNo),
 		BufferID:     ofp.NO_BUFFER,
-		Priority:     2, // Use non-zero priority
+		Priority:     3, // Use non-zero priority
 		Match:        match,
 		Instructions: instructions,
 	}
@@ -252,32 +249,32 @@ func (m *ARPMechanism) UpdateNetwork(context *mech.NetworkContext) error {
 	m.cookies.FilterFunc(&flowMod, m.arpReplyHandler)
 
 	// Insert flow into ARP-allocated flow table.
-	r, err = of.NewRequest(of.T_FLOW_MOD, of.NewReader(&flowMod))
+	arpReply, err := of.NewRequest(of.T_FLOW_MOD, of.NewReader(&flowMod))
 	if err != nil {
 		log.ErrorLog("arp/UPDATE_NETWORK_ARP_REPLY",
 			"Failed to create ofp_flow_mod request: ", err)
 		return err
 	}
 
-	if err = m.C.Switch.Conn().Send(r); err != nil {
-		log.ErrorLog("arp/UPDATE_NETWORK_ARP_REPLY",
-			"Failed to send request: ", err)
-		return err
-	}
+	err = of.Send(m.C.Switch.Conn(),
+		arpRequest,
+		arpReply,
+	)
 
-	if err = m.C.Switch.Conn().Flush(); err != nil {
-		log.ErrorLog("arp/UPDATE_NETWORK_FLUSH",
-			"Failed to flush requests: ", err)
+	if err != nil {
+		log.ErrorLog("arp/UPDATE_NETWORK_SEND",
+			"Failed to send requests: ", err)
 	}
 
 	return err
 }
 
 func (m *ARPMechanism) DeleteNetwork(context *mech.NetworkContext) error {
+	log.DebugLog("arp/DELETE_NETWORK",
+		"Got delete network request")
+
 	match := ofp.Match{ofp.MT_OXM, []ofp.OXM{
 		ofputil.EthType(uint16(iana.ETHT_ARP), nil),
-		ofputil.ARPOpType(uint16(l3.ARPOT_REQUEST), nil),
-		ofputil.ARPTargetHWAddr(l2.HWUnspec, nil),
 		ofputil.ARPTargetProtoAddr(context.Addr.Bytes(), nil),
 	}}
 
@@ -287,7 +284,7 @@ func (m *ARPMechanism) DeleteNetwork(context *mech.NetworkContext) error {
 
 	if err != nil {
 		log.ErrorLog("arp/DELETE_NETWORK",
-			"Failed to send requests: ", err)
+			"Failed to remove installed ARP flows: ", err)
 	}
 
 	return err

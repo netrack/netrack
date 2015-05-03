@@ -11,12 +11,12 @@ import (
 )
 
 const (
-	StaticRoute    RouteType = "S"
-	LocalRoute     RouteType = "L"
-	ConnectedRoute RouteType = "C"
-	EIGRPRoute     RouteType = "D"
-	OSPFRoute      RouteType = "O"
-	RIPRoute       RouteType = "R"
+	StaticRoute    RouteType = "static"
+	LocalRoute     RouteType = "local"
+	ConnectedRoute RouteType = "connected"
+	EIGRPRoute     RouteType = "eigrp"
+	OSPFRoute      RouteType = "ospf"
+	RIPRoute       RouteType = "rip"
 )
 
 var distanceMap = map[RouteType]int{

@@ -251,17 +251,30 @@ func (m *BaseRouteMechanismManager) DeleteRoutes(context *RouteManagerContext) e
 	m.lock.RLock()
 	defer m.lock.RUnlock()
 
-	return m.BaseMechanismManager.Update(RouteModel, routes, func() error {
-		for _, route := range context.Routes {
-			err := m.do(RouteMechanism.DeleteRoute, route)
+	update := func(fn func() error) error {
+		return m.BaseMechanismManager.Update(
+			RouteModel, routes, fn,
+		)
+	}
 
-			if err != nil {
-				log.ErrorLog("route/DELETE_ROUTE",
-					"Failed to delete routes configuration: ", err)
+	alter := func(route *RouteContext) error {
+		err := m.do(RouteMechanism.DeleteRoute, route)
+
+		if err != nil {
+			log.ErrorLog("route/DELETE_ROUTE",
+				"Failed to delete routes configuration: ", err)
+			return err
+		}
+
+		routes.DelRoute(route)
+		return nil
+	}
+
+	return update(func() error {
+		for _, route := range context.Routes {
+			if err := alter(route); err != nil {
 				return err
 			}
-
-			routes.DelRoute(route)
 		}
 
 		return nil

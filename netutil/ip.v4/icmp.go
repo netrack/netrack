@@ -31,11 +31,14 @@ func EchoRequest(ipaddr []byte) ofp.Match {
 type ICMPMechanism struct {
 	mech.BaseNetworkMechanism
 
-	tableNo int
+	// Handle request based on cookie value.
+	cookies *of.CookieFilter
 }
 
 func NewICMPMechanism() mech.NetworkMechanism {
-	return &ICMPMechanism{}
+	return &ICMPMechanism{
+		cookies: of.NewCookieFilter(),
+	}
 }
 
 func (m *ICMPMechanism) Enable(c *mech.MechanismContext) {
@@ -47,7 +50,17 @@ func (m *ICMPMechanism) Enable(c *mech.MechanismContext) {
 	log.InfoLog("icmp/ENABLE_HOOK", "Mechanism ICMP enabled")
 }
 
+func (m *ICMPMechanism) Activate() {
+	m.BaseNetworkMechanism.Activate()
+
+	// Operate on PacketIn messages
+	m.cookies.Baker = ofputil.PacketInBaker()
+}
+
 func (m *ICMPMechanism) UpdateNetwork(context *mech.NetworkContext) error {
+	log.DebugLog("icmp/UPDATE_NETWORK",
+		"Got update network request")
+
 	// Send ICMP message to the controller
 	instructions := ofp.Instructions{ofp.InstructionActions{
 		ofp.IT_APPLY_ACTIONS,
@@ -55,21 +68,26 @@ func (m *ICMPMechanism) UpdateNetwork(context *mech.NetworkContext) error {
 	}}
 
 	// Insert flow into ICMP-allocated table.
-	flowMod, err := of.NewRequest(of.T_FLOW_MOD, of.NewReader(&ofp.FlowMod{
+	flowMod := ofp.FlowMod{
 		Command:      ofp.FC_ADD,
-		TableID:      ofp.Table(m.tableNo),
 		BufferID:     ofp.NO_BUFFER,
 		Priority:     30, // Use non-zero priority
 		Match:        EchoRequest(context.Addr.Bytes()),
 		Instructions: instructions,
-	}))
+	}
 
+	// Assign cookie to FlowMod message, and
+	// redirect such requests to icmpEchoHandler
+	m.cookies.FilterFunc(&flowMod, m.icmpEchoHandler)
+
+	r, err := of.NewRequest(of.T_FLOW_MOD, of.NewReader(&flowMod))
 	if err != nil {
 		log.ErrorLog("icmp/UPDATE_NETWORK",
 			"Failed to create a new ofp_flow_mod request: ", err)
+		return err
 	}
 
-	if err = of.Send(m.C.Switch.Conn(), flowMod); err != nil {
+	if err = of.Send(m.C.Switch.Conn(), r); err != nil {
 		log.ErrorLogf("icmp/UPDATE_NETWORK",
 			"Failed to send request:", err)
 	}
@@ -80,8 +98,7 @@ func (m *ICMPMechanism) UpdateNetwork(context *mech.NetworkContext) error {
 func (m *ICMPMechanism) DeleteNetwork(context *mech.NetworkContext) error {
 	// Flush ICMP flow for specified address (if any).
 	err := of.Send(m.C.Switch.Conn(), ofputil.FlowFlush(
-		ofp.Table(m.tableNo),
-		EchoRequest(context.Addr.Bytes()),
+		0, EchoRequest(context.Addr.Bytes()),
 	))
 
 	if err != nil {
@@ -93,6 +110,10 @@ func (m *ICMPMechanism) DeleteNetwork(context *mech.NetworkContext) error {
 }
 
 func (m *ICMPMechanism) packetInHandler(rw of.ResponseWriter, r *of.Request) {
+	m.cookies.Serve(rw, r)
+}
+
+func (m *ICMPMechanism) icmpEchoHandler(rw of.ResponseWriter, r *of.Request) {
 	var packet ofp.PacketIn
 	var pdu2 mech.LinkFrame
 	var pdu3 mech.NetworkPacket
@@ -121,10 +142,6 @@ func (m *ICMPMechanism) packetInHandler(rw of.ResponseWriter, r *of.Request) {
 		return
 	}
 
-	if int(packet.TableID) != m.tableNo {
-		return
-	}
-
 	// Read icmp echo-request message
 	icmp := l3.ICMPEcho{Data: make([]byte, pdu3.ContentLen-l3.ICMPHeaderLen)}
 	if _, err = of.ReadAllFrom(r.Body, &icmp); err != nil {
@@ -132,6 +149,9 @@ func (m *ICMPMechanism) packetInHandler(rw of.ResponseWriter, r *of.Request) {
 			"Failed to read ICMP message: ", err)
 		return
 	}
+
+	log.DebugLog("icmp/ECHO_REQUEST_HANDLER",
+		"Got ICMP echo-request: %s -> %s", pdu3.SrcAddr, pdu3.DstAddr)
 
 	// Get port number from match fields.
 	portNo := packet.Match.Field(ofp.XMT_OFB_IN_PORT).Value.UInt32()

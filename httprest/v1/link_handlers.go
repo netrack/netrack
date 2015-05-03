@@ -131,7 +131,7 @@ func (h *LinkHandler) createHandler(rw http.ResponseWriter, r *http.Request) {
 
 	rf, wf := Format(r)
 
-	switchContext, switchPort, err := h.context(rw, r)
+	mechanism, switchPort, err := h.context(rw, r)
 	if err != nil {
 		return
 	}
@@ -147,14 +147,14 @@ func (h *LinkHandler) createHandler(rw http.ResponseWriter, r *http.Request) {
 	}
 
 	context := &mech.LinkManagerContext{
-		Datapath: switchContext.Switch.ID(),
+		Datapath: mechanism.Switch.ID(),
 		Driver:   link.Encapsulation.String(),
 		Ports: []mech.LinkPort{
 			{link.Addr.String(), switchPort.Number},
 		},
 	}
 
-	if err = switchContext.Link.UpdateLink(context); err != nil {
+	if err = mechanism.Link.UpdateLink(context); err != nil {
 		log.ErrorLog("link_handlers/CREATE_HANDLER",
 			"Failed to createa a new L2 address: ", err)
 
@@ -196,5 +196,26 @@ func (h *LinkHandler) destroyHandler(rw http.ResponseWriter, r *http.Request) {
 	log.InfoLog("link_handlers/DESTROY_HANDLER",
 		"Got request to destroy L2 address")
 
-	// driver.DeteleNework(mech.LinkManagerContext{})
+	wf := WriteFormat(r)
+
+	mechanism, switchPort, err := h.context(rw, r)
+	if err != nil {
+		return
+	}
+
+	context := &mech.LinkManagerContext{
+		Datapath: mechanism.Switch.ID(),
+		Ports:    []mech.LinkPort{{"", switchPort.Number}},
+	}
+
+	if err = mechanism.Link.DeleteLink(context); err != nil {
+		log.ErrorLog("link_handlers/DELETE_HANDLER",
+			"Failed to delete link layer address: ", err)
+
+		body := models.Error{"failed update link"}
+		wf.Write(rw, body, http.StatusConflict)
+		return
+	}
+
+	rw.WriteHeader(http.StatusOK)
 }

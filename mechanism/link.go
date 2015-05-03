@@ -117,6 +117,9 @@ type LinkContext struct {
 	// Switch port number.
 	Port uint32
 
+	// Link layer driver
+	Driver LinkDriver
+
 	// Link communication mode.
 	Mode LinkMode
 
@@ -190,6 +193,10 @@ type LinkDriver interface {
 
 	// UpdateAddr updates switch port link layer address.
 	UpdateAddr(uint32, LinkAddr) error
+
+	// DeleteAddr deletes link layer address associated
+	// with specified port.
+	DeleteAddr(uint32) error
 
 	// Reads link layer frames.
 	LinkFrameReader
@@ -385,7 +392,8 @@ type BaseLinkMechanismManager struct {
 	Drivers map[string]LinkDriver
 
 	// Activated link layer driver.
-	drv LinkDriver
+	drv     LinkDriver
+	drvLock sync.RWMutex
 
 	// Lock for drv member.
 	lock sync.RWMutex
@@ -426,7 +434,7 @@ func (m *BaseLinkMechanismManager) do(fn linkMechanismFunc, context *LinkContext
 	return
 }
 
-func (m *BaseLinkMechanismManager) driver(name string) error {
+func (m *BaseLinkMechanismManager) SetDriver(name string) error {
 	m.lock.Lock()
 	defer m.lock.Unlock()
 
@@ -485,7 +493,7 @@ func (m *BaseLinkMechanismManager) CreateLink() error {
 		}
 
 		// Restore state of the persited switch
-		if err := m.driver(context.Driver); err != nil {
+		if err := m.SetDriver(context.Driver); err != nil {
 			return err
 		}
 
@@ -526,7 +534,7 @@ func (m *BaseLinkMechanismManager) CreateLink() error {
 func (m *BaseLinkMechanismManager) UpdateLink(context *LinkManagerContext) (err error) {
 	link := new(LinkManagerContext)
 
-	if err = m.driver(context.Driver); err != nil {
+	if err = m.SetDriver(context.Driver); err != nil {
 		return err
 	}
 
@@ -572,29 +580,56 @@ func (m *BaseLinkMechanismManager) UpdateLink(context *LinkManagerContext) (err 
 func (m *BaseLinkMechanismManager) DeleteLink(context *LinkManagerContext) (err error) {
 	link := new(LinkManagerContext)
 
-	if err = m.driver(context.Driver); err != nil {
-		return err
-	}
-
 	m.lock.RLock()
 	defer m.lock.RUnlock()
 
-	return m.BaseMechanismManager.Update(LinkModel, link, func() error {
-		for _, port := range context.Ports {
-			err = m.do(LinkMechanism.DeleteLink, &LinkContext{
-				Port: port.Port,
-			})
+	if m.drv == nil {
+		return ErrLinkNotInitialized
+	}
 
-			if err != nil {
-				log.ErrorLog("link/DELETE_LINK",
-					"Failed to delete link configuration: ", err)
-				return err
-			}
+	update := func(fn func() error) error {
+		return m.BaseMechanismManager.Update(
+			LinkModel, link, fn,
+		)
+	}
 
-			link.DelPort(port)
+	alter := func(port LinkPort) error {
+		addr, err := m.drv.Addr(port.Port)
+		if err != nil {
+			log.ErrorLog("link/DELETE_LINK",
+				"Link layer address is not assigned to port: ", err)
+			return err
 		}
 
-		//TODO: delete address from the driver
+		// Remove association from the driver
+		defer m.drv.DeleteAddr(port.Port)
+
+		// Forward event to activated mechanisms
+		err = m.do(LinkMechanism.DeleteLink, &LinkContext{
+			Addr:   addr,
+			Port:   port.Port,
+			Driver: m.drv,
+		})
+
+		if err != nil {
+			log.ErrorLog("link/DELETE_LINK",
+				"Failed to delete link configuration: ", err)
+			return err
+		}
+
+		// Update link layer port configuration.
+		link.DelPort(port)
+
+		return nil
+	}
+
+	return update(func() error {
+		for _, port := range context.Ports {
+			if err := alter(port); err != nil {
+				return err
+			}
+		}
+
 		return nil
 	})
 }

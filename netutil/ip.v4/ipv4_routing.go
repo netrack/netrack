@@ -167,21 +167,18 @@ func (m *IPv4Routing) UpdateRoute(context *mech.RouteContext) error {
 		return err
 	}
 
-	if err = m.C.Switch.Conn().Send(r); err != nil {
+	if err = of.Send(m.C.Switch.Conn(), r); err != nil {
 		log.ErrorLog("routing/UPDATE_ROUTES",
 			"Failed to send ofp_flow_mode request: ", err)
-		return err
-	}
-
-	if err = m.C.Switch.Conn().Flush(); err != nil {
-		log.ErrorLog("routing/UPDATE_ROUTES",
-			"Failed to flush requests: ", err)
 	}
 
 	return err
 }
 
 func (m *IPv4Routing) DeleteRoute(context *mech.RouteContext) error {
+	log.DebugLog("routing/DELETE_ROUTE",
+		"Got delete route request")
+
 	nldriver, err := m.C.Network.Driver()
 	if err != nil {
 		log.InfoLog("routing/DELETE_ROUTE",

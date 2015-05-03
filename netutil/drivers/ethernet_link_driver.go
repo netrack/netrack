@@ -57,6 +57,11 @@ func (d *EthernetLinkDriver) CreateAddr(addr []byte) mech.LinkAddr {
 	return EthernetAddr(addr)
 }
 
+func (d *EthernetLinkDriver) DeleteAddr(port uint32) error {
+	delete(d.addrs, port)
+	return nil
+}
+
 func (d *EthernetLinkDriver) ParseAddr(s string) (mech.LinkAddr, error) {
 	hwaddr, err := net.ParseMAC(s)
 	if err != nil {

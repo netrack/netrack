@@ -95,6 +95,9 @@ func (m *ARPMechanism) Enable(c *mech.MechanismContext) {
 	// Handle incoming ARP requests.
 	m.C.Mux.HandleFunc(of.T_PACKET_IN, m.packetInHandler)
 
+	// Handle removed flows notifications
+	m.C.Mux.HandleFunc(of.T_FLOW_REMOVED, m.flowRemovedHandler)
+
 	log.InfoLog("arp/ENABLE_HOOK", "Mechanism ARP enabled")
 }
 
@@ -199,10 +202,13 @@ func (m *ARPMechanism) UpdateNetwork(context *mech.NetworkContext) error {
 	}}
 
 	flowMod := ofp.FlowMod{
-		Command:      ofp.FC_ADD,
-		TableID:      ofp.Table(m.tableNo),
-		BufferID:     ofp.NO_BUFFER,
-		Priority:     2, // Use non-zero priority
+		Command: ofp.FC_ADD,
+		TableID: ofp.Table(m.tableNo),
+		// Notify controller, when flow removed
+		Flags:    ofp.FF_SEND_FLOW_REM,
+		BufferID: ofp.NO_BUFFER,
+		// Use non-zero priority
+		Priority:     2,
 		Match:        match,
 		Instructions: instructions,
 	}
@@ -238,10 +244,13 @@ func (m *ARPMechanism) UpdateNetwork(context *mech.NetworkContext) error {
 	}}
 
 	flowMod = ofp.FlowMod{
-		Command:      ofp.FC_ADD,
-		TableID:      ofp.Table(m.tableNo),
-		BufferID:     ofp.NO_BUFFER,
-		Priority:     3, // Use non-zero priority
+		Command: ofp.FC_ADD,
+		TableID: ofp.Table(m.tableNo),
+		// Notify controller, when flow removed
+		Flags:    ofp.FF_SEND_FLOW_REM,
+		BufferID: ofp.NO_BUFFER,
+		// Use non-zero priority
+		Priority:     3,
 		Match:        match,
 		Instructions: instructions,
 	}
@@ -293,6 +302,17 @@ func (m *ARPMechanism) DeleteNetwork(context *mech.NetworkContext) error {
 func (m *ARPMechanism) packetInHandler(rw of.ResponseWriter, r *of.Request) {
 	// Serve message based on PacketIn cookies.
 	m.cookies.Serve(rw, r)
+}
+
+func (m *ARPMechanism) flowRemovedHandler(rw of.ResponseWriter, r *of.Request) {
+	var flowRemoved ofp.FlowRemoved
+
+	_, err := of.ReadAllFrom(r.Body, &flowRemoved)
+	if err != nil {
+		return
+	}
+
+	m.cookies.Release(&flowRemoved)
 }
 
 func (m *ARPMechanism) arpRequestHandler(rw of.ResponseWriter, r *of.Request) {

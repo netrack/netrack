@@ -67,6 +67,8 @@ type NetworkManagerContext struct {
 
 	// List of ports to modify.
 	Ports []NetworkPort `json:"ports"`
+
+	Link LinkMechanismManager
 }
 
 // Port searchs for a specified port number.

@@ -46,6 +46,7 @@ func (m *ICMPMechanism) Enable(c *mech.MechanismContext) {
 
 	// Handle incoming ICMP requests.
 	m.C.Mux.HandleFunc(of.T_PACKET_IN, m.packetInHandler)
+	m.C.Mux.HandleFunc(of.T_FLOW_REMOVED, m.flowRemovedHandler)
 
 	log.InfoLog("icmp/ENABLE_HOOK", "Mechanism ICMP enabled")
 }
@@ -69,8 +70,10 @@ func (m *ICMPMechanism) UpdateNetwork(context *mech.NetworkContext) error {
 
 	// Insert flow into ICMP-allocated table.
 	flowMod := ofp.FlowMod{
-		Command:      ofp.FC_ADD,
-		BufferID:     ofp.NO_BUFFER,
+		Command:  ofp.FC_ADD,
+		BufferID: ofp.NO_BUFFER,
+		// Notify controller, when flow removed
+		Flags:        ofp.FF_SEND_FLOW_REM,
 		Priority:     30, // Use non-zero priority
 		Match:        EchoRequest(context.Addr.Bytes()),
 		Instructions: instructions,
@@ -111,6 +114,17 @@ func (m *ICMPMechanism) DeleteNetwork(context *mech.NetworkContext) error {
 
 func (m *ICMPMechanism) packetInHandler(rw of.ResponseWriter, r *of.Request) {
 	m.cookies.Serve(rw, r)
+}
+
+func (m *ICMPMechanism) flowRemovedHandler(rw of.ResponseWriter, r *of.Request) {
+	var flowRemoved ofp.FlowRemoved
+
+	_, err := of.ReadAllFrom(r.Body, &flowRemoved)
+	if err != nil {
+		return
+	}
+
+	m.cookies.Release(&flowRemoved)
 }
 
 func (m *ICMPMechanism) icmpEchoHandler(rw of.ResponseWriter, r *of.Request) {

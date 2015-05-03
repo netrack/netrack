@@ -42,6 +42,7 @@ func (m *IPv4Routing) Enable(c *mech.MechanismContext) {
 
 	// Handle incoming IPv4 packets.
 	m.C.Mux.HandleFunc(of.T_PACKET_IN, m.packetInHandler)
+	m.C.Mux.HandleFunc(of.T_FLOW_REMOVED, m.flowRemovedHandler)
 
 	log.InfoLog("routing/ENABLE_HOOK",
 		"IPv4 routing enabled")
@@ -141,8 +142,10 @@ func (m *IPv4Routing) UpdateRoute(context *mech.RouteContext) error {
 	}}
 
 	flowMod := ofp.FlowMod{
-		Command:      ofp.FC_ADD,
-		TableID:      ofp.Table(m.tableNo),
+		Command: ofp.FC_ADD,
+		TableID: ofp.Table(m.tableNo),
+		// Notify controller, when flow removed
+		Flags:        ofp.FF_SEND_FLOW_REM,
 		BufferID:     ofp.NO_BUFFER,
 		Priority:     15,
 		Match:        match,
@@ -233,6 +236,17 @@ func (m *IPv4Routing) DeleteRoute(context *mech.RouteContext) error {
 
 func (m *IPv4Routing) packetInHandler(rw of.ResponseWriter, r *of.Request) {
 	m.cookies.Serve(rw, r)
+}
+
+func (m *IPv4Routing) flowRemovedHandler(rw of.ResponseWriter, r *of.Request) {
+	var flowRemoved ofp.FlowRemoved
+
+	_, err := of.ReadAllFrom(r.Body, &flowRemoved)
+	if err != nil {
+		return
+	}
+
+	m.cookies.Release(&flowRemoved)
 }
 
 func (m *IPv4Routing) ipPacketHandler(rw of.ResponseWriter, r *of.Request) {

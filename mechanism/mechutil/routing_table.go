@@ -10,25 +10,16 @@ import (
 	"github.com/netrack/netrack/mechanism"
 )
 
-const (
-	StaticRoute    RouteType = "static"
-	LocalRoute     RouteType = "local"
-	ConnectedRoute RouteType = "connected"
-	EIGRPRoute     RouteType = "eigrp"
-	OSPFRoute      RouteType = "ospf"
-	RIPRoute       RouteType = "rip"
-)
-
-var distanceMap = map[RouteType]int{
-	StaticRoute:    0,
-	LocalRoute:     0,
-	ConnectedRoute: 1,
-	EIGRPRoute:     90,
-	OSPFRoute:      110,
-	RIPRoute:       120,
+var distanceMap = map[mech.RouteType]int{
+	mech.StaticRoute:    0,
+	mech.LocalRoute:     0,
+	mech.ConnectedRoute: 1,
+	mech.EIGRPRoute:     90,
+	mech.OSPFRoute:      110,
+	mech.RIPRoute:       120,
 }
 
-func routeToDistance(r RouteType) (int, error) {
+func routeToDistance(r mech.RouteType) (int, error) {
 	distance, ok := distanceMap[r]
 	if !ok {
 		return 0, errors.New("route: unsupported route type")
@@ -37,10 +28,8 @@ func routeToDistance(r RouteType) (int, error) {
 	return distance, nil
 }
 
-type RouteType string
-
 type RouteEntry struct {
-	Type      RouteType
+	Type      mech.RouteType
 	Network   mech.NetworkAddr
 	NextHop   mech.NetworkAddr
 	Distance  int

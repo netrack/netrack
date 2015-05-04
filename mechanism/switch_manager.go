@@ -71,41 +71,26 @@ func (m *SwitchManager) CreateSwitch(conn of.OFPConn) error {
 		BaseMechanismManager{sw.ID(), ExtensionMechanisms(), 0, 0},
 	}
 
-	manager := BaseMechanismManager{sw.ID(), RouteMechanisms(), 0, 0}
-	routeManager := &BaseRouteMechanismManager{
-		BaseMechanismManager: manager,
-	}
-
 	// Create a new mechanism driver context
 	context := &MechanismContext{
-		Switch: sw,
-		Func:   rpc.New(),
-		Mux:    of.NewServeMux(),
-		//Link:   linkManager,
-		//Network:   networkManager,
-		Routing:   routeManager,
+		Switch:    sw,
+		Func:      rpc.New(),
+		Mux:       of.NewServeMux(),
 		Extension: extensionManager,
 		Managers:  injector.New(),
 	}
 
 	linkManager.Enable(context)
-	routeManager.Enable(context)
 	extensionManager.Enable(context)
 
 	// Since switch already booted, activate drivers
 	// TODO: make this configurable (or deactivate all by default)
 	linkManager.Activate()
-	routeManager.Activate()
 	extensionManager.Activate()
 
 	if err = linkManager.CreateLink(); err != nil {
 		log.ErrorLog("switch_manager/CREATE_SWITCH",
 			"Failed to create link configuration: ", err)
-	}
-
-	if err = routeManager.CreateRoutes(); err != nil {
-		log.ErrorLog("switch_manager/CREATE_SWITCH",
-			"Failed to create routes configuration: ", err)
 	}
 
 	log.DebugLog("switch_manager/CREATE_SWITCH",

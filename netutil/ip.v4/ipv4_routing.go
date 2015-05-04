@@ -13,12 +13,12 @@ import (
 const IPv4RoutingName = "ipv4"
 
 func init() {
-	constructor := mech.RouteMechanismConstructorFunc(NewIPv4Routing)
-	mech.RegisterRouteMechanism(IPv4RoutingName, constructor)
+	constructor := mech.RoutingMechanismConstructorFunc(NewIPv4Routing)
+	mech.RegisterRoutingMechanism(IPv4RoutingName, constructor)
 }
 
 type IPv4Routing struct {
-	mech.BaseRouteMechanism
+	mech.BaseRoutingMechanism
 
 	cookies *of.CookieFilter
 
@@ -29,7 +29,7 @@ type IPv4Routing struct {
 	tableNo int
 }
 
-func NewIPv4Routing() mech.RouteMechanism {
+func NewIPv4Routing() mech.RoutingMechanism {
 	return &IPv4Routing{
 		cookies:    of.NewCookieFilter(),
 		routeTable: mechutil.NewRoutingTable(),
@@ -38,7 +38,7 @@ func NewIPv4Routing() mech.RouteMechanism {
 
 // Enable implements Mechanism interface
 func (m *IPv4Routing) Enable(c *mech.MechanismContext) {
-	m.BaseRouteMechanism.Enable(c)
+	m.BaseRoutingMechanism.Enable(c)
 
 	// Handle incoming IPv4 packets.
 	m.C.Mux.HandleFunc(of.T_PACKET_IN, m.packetInHandler)
@@ -49,7 +49,7 @@ func (m *IPv4Routing) Enable(c *mech.MechanismContext) {
 }
 
 func (m *IPv4Routing) Activate() {
-	m.BaseRouteMechanism.Activate()
+	m.BaseRoutingMechanism.Activate()
 
 	// Operate on PacketIn messages
 	m.cookies.Baker = ofputil.PacketInBaker()
@@ -106,32 +106,11 @@ func (m *IPv4Routing) Activate() {
 	}
 }
 
-func (m *IPv4Routing) UpdateRoute(context *mech.RouteContext) error {
-	nldriver, err := mech.NetworkDrv(m.C)
-	if err != nil {
-		log.InfoLog("routing/CREATE_ROUTE",
-			"Network layer driver is not intialized: ", err)
-		return err
-	}
-
-	network, err := nldriver.ParseAddr(context.Network)
-	if err != nil {
-		log.ErrorLog("routing/CREATE_ROUTE",
-			"Failed to parse network string: ", err)
-		return err
-	}
-
-	nextHop, err := nldriver.ParseAddr(context.NextHop)
-	if context.NextHop != "" && err != nil {
-		log.ErrorLog("routing/CREATE_ROUTE",
-			"Failed to parse next-hop string: ", err)
-		return err
-	}
-
+func (m *IPv4Routing) UpdateRoute(context *mech.RoutingContext) error {
 	// Match IPv4 packets of specified route.
 	match := ofp.Match{ofp.MT_OXM, []ofp.OXM{
 		ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_ETH_TYPE, of.Bytes(iana.ETHT_IPV4), nil},
-		ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_IPV4_DST, network.Bytes(), network.Mask()},
+		ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_IPV4_DST, context.Network.Bytes(), context.Network.Mask()},
 	}}
 
 	// Send all such packets to controller.
@@ -157,9 +136,9 @@ func (m *IPv4Routing) UpdateRoute(context *mech.RouteContext) error {
 
 	// Update routing table with new address
 	m.routeTable.Populate(mechutil.RouteEntry{
-		Type:    mechutil.RouteType(context.Type),
-		Network: network,
-		NextHop: nextHop,
+		Type:    context.Type,
+		Network: context.Network,
+		NextHop: context.NextHop,
 		Port:    context.Port,
 	})
 
@@ -178,51 +157,30 @@ func (m *IPv4Routing) UpdateRoute(context *mech.RouteContext) error {
 	return err
 }
 
-func (m *IPv4Routing) DeleteRoute(context *mech.RouteContext) error {
+func (m *IPv4Routing) DeleteRoute(context *mech.RoutingContext) error {
 	log.DebugLog("routing/DELETE_ROUTE",
 		"Got delete route request")
 
-	nldriver, err := mech.NetworkDrv(m.C)
-	if err != nil {
-		log.InfoLog("routing/DELETE_ROUTE",
-			"Network layer driver is not intialized: ", err)
-		return err
-	}
-
-	network, err := nldriver.ParseAddr(context.Network)
-	if err != nil {
-		log.ErrorLog("routing/DELETE_ROUTE",
-			"Failed to parse network string: ", err)
-		return err
-	}
-
-	nextHop, err := nldriver.ParseAddr(context.NextHop)
-	if context.NextHop != "" && err != nil {
-		log.ErrorLog("routing/DELETE_ROUTE",
-			"Failed to parse next-hop string: ", err)
-		return err
-	}
-
 	// Update routing table with new address
 	evicted := m.routeTable.Evict(mechutil.RouteEntry{
-		Network: network,
-		NextHop: nextHop,
+		Network: context.Network,
+		NextHop: context.NextHop,
 		Port:    context.Port,
 	})
 
 	if !evicted {
 		log.ErrorLog("routing/DELETE_ROUTE",
-			"Failed to delete specified route: ", network)
+			"Failed to delete specified route: ", context.Network)
 		return nil
 	}
 
 	// Match IPv4 packets of specified route.
 	match := ofp.Match{ofp.MT_OXM, []ofp.OXM{
 		ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_ETH_TYPE, of.Bytes(iana.ETHT_IPV4), nil},
-		ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_IPV4_DST, network.Bytes(), network.Mask()},
+		ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_IPV4_DST, context.Network.Bytes(), context.Network.Mask()},
 	}}
 
-	err = of.Send(m.C.Switch.Conn(),
+	err := of.Send(m.C.Switch.Conn(),
 		ofputil.FlowFlush(ofp.Table(m.tableNo), match),
 	)
 

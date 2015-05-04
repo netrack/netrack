@@ -111,7 +111,7 @@ func (h *NetworkHandler) context(rw http.ResponseWriter, r *http.Request) (*Netw
 
 	networkContext, err := nnetwork.Context()
 	if err != nil {
-		log.ErrorLog("link_handlers/LINK_LAYER_CONTEXT",
+		log.ErrorLog("network_handlers/LINK_LAYER_CONTEXT",
 			"Failed to get link layer context: ", err)
 
 		text := fmt.Sprintf("network layer context inaccessible")

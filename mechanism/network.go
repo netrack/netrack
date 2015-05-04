@@ -238,11 +238,7 @@ type BaseNetworkMechanism struct {
 }
 
 // UpdateNetwork implements NetworkMechanism interface.
-func (m *BaseNetworkMechanism) UpdateNetworkPreCommit(c *NetworkContext) error {
-	return nil
-}
-
-func (m *BaseNetworkMechanism) UpdateNetworkPostCommit(c *NetworkContext) error {
+func (m *BaseNetworkMechanism) UpdateNetwork(c *NetworkContext) error {
 	return nil
 }
 
@@ -547,7 +543,8 @@ func (m *networkMechanismManager) do(fn networkMechanismFunc, context *NetworkCo
 			return true
 		}
 
-		if err = fn(mechanism, context); err != nil {
+		err = fn(mechanism, context)
+		if err != nil {
 			log.ErrorLog("network/ALTER_NETWORK",
 				"Failed to alter network layer mechanism: ", err)
 			return false

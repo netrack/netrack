@@ -50,12 +50,10 @@ type MechanismContext struct {
 	// OpenFlow multiplexer handler.
 	Mux *of.ServeMux
 
-	// Route mechanism manager.
-	Routing RouteMechanismManager
-
 	// Extention mechanism manager.
 	Extension *ExtensionMechanismManager
 
+	// Container for available managers
 	Managers injector.Injector
 }
 

@@ -27,6 +27,10 @@ func (f *JSONFormatter) Write(w http.ResponseWriter, v interface{}, status int) 
 	w.Header().Set(httputil.HeaderContentType, httputil.TypeApplicationJSON)
 	w.WriteHeader(status)
 
+	if v == nil {
+		return nil
+	}
+
 	encoder := json.NewEncoder(w)
 	return encoder.Encode(v)
 }

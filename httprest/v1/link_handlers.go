@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/netrack/netrack/httprest/format"
 	"github.com/netrack/netrack/httprest/v1/models"
 	"github.com/netrack/netrack/httputil"
 	"github.com/netrack/netrack/logging"
@@ -14,6 +15,28 @@ func init() {
 	// Register link management HTTP API driver.
 	constructor := mech.HTTPDriverConstructorFunc(NewLinkHandler)
 	mech.RegisterHTTPDriver(constructor)
+}
+
+type LinkHandlerContext struct {
+	// Back-end context.
+	Mech *mech.MechanismContext
+
+	// Link layer manager instance.
+	Link mech.LinkMechanismManager
+
+	// Link layer maanger context.
+	LinkContext *mech.LinkManagerContext
+
+	// SwitchPort instance
+	Port *mech.SwitchPort
+
+	// WriteFormatter, to write data in
+	// requested format.
+	W format.WriteFormatter
+
+	// ReadFormatter equal to nil if request
+	// does not contain body.
+	R format.ReadFormatter
 }
 
 // L2 protocol address management
@@ -40,14 +63,14 @@ func (h *LinkHandler) Enable(c *mech.HTTPDriverContext) {
 		"Link layer handlers enabled")
 }
 
-func (h *LinkHandler) context(rw http.ResponseWriter, r *http.Request) (*mech.MechanismContext, *mech.SwitchPort, error) {
+func (h *LinkHandler) context(rw http.ResponseWriter, r *http.Request) (*LinkHandlerContext, error) {
 	log.InfoLog("link_handlers/CONTEXT",
 		"Got request to handle L2 address")
 
 	dpid := httputil.Param(r, "dpid")
 	iface := httputil.Param(r, "interface")
 
-	f := WriteFormat(r)
+	rf, wf := Format(r)
 
 	log.DebugLogf("link_handlers/CONTEXT",
 		"Request handle L2 address of: %s dev %s", dpid, iface)
@@ -59,163 +82,170 @@ func (h *LinkHandler) context(rw http.ResponseWriter, r *http.Request) (*mech.Me
 
 		text := fmt.Sprintf("switch '%s' not found", dpid)
 
-		f.Write(rw, models.Error{text}, http.StatusNotFound)
-		return nil, nil, fmt.Errorf(text)
+		wf.Write(rw, models.Error{text}, http.StatusNotFound)
+		return nil, fmt.Errorf(text)
 	}
 
-	port, err := context.Switch.PortByName(iface)
+	var port *mech.SwitchPort
+
+	if iface != "" {
+		port, err = context.Switch.PortByName(iface)
+		if err != nil {
+			log.ErrorLog("link_handlers/CONTEXT",
+				"Failed to find requested interface: ", iface)
+
+			text := fmt.Sprintf("switch '%s' does not have '%s' interface", dpid, iface)
+
+			wf.Write(rw, models.Error{text}, http.StatusNotFound)
+			return nil, fmt.Errorf(text)
+		}
+	}
+
+	var llink mech.LinkMechanismManager
+	if err := context.Managers.Obtain(&llink); err != nil {
+		log.ErrorLog("link_handlers/LINK_LAYER_MANAGER",
+			"Failed to obtain link layer manager: ", err)
+
+		text := fmt.Sprintf("link layer manager is dead")
+		wf.Write(rw, models.Error{text}, http.StatusInternalServerError)
+		return nil, err
+	}
+
+	linkContext, err := llink.Context()
 	if err != nil {
-		log.ErrorLog("link_handlers/CONTEXT",
-			"Failed to find requested interface: ", iface)
+		log.ErrorLog("link_handlers/LINK_LAYER_CONTEXT",
+			"Failed to get link layer context: ", err)
 
-		text := fmt.Sprintf("switch '%s' does not have '%s' interface", dpid, iface)
-
-		f.Write(rw, models.Error{text}, http.StatusNotFound)
-		return nil, nil, fmt.Errorf(text)
+		text := fmt.Sprintf("link layer context inaccessible")
+		wf.Write(rw, models.Error{text}, http.StatusConflict)
+		return nil, err
 	}
 
-	return context, port, nil
+	ctx := &LinkHandlerContext{
+		LinkContext: linkContext,
+		Link:        llink,
+		Mech:        context,
+		Port:        port,
+		W:           wf,
+		R:           rf,
+	}
+
+	return ctx, nil
 }
 
 func (h *LinkHandler) indexHandler(rw http.ResponseWriter, r *http.Request) {
 	log.InfoLog("link_handlers/INDEX_HANDLER",
 		"Got request to list link layer addresses")
 
-	dpid := httputil.Param(r, "dpid")
-	wf := WriteFormat(r)
-
-	log.DebugLogf("link_handlers/INDEX_HANDLER",
-		"Request list links of: %s", dpid)
-
-	context, err := h.C.SwitchManager.Context(dpid)
+	context, err := h.context(rw, r)
 	if err != nil {
-		log.ErrorLog("link_handlers/INDEX_HANDLER",
-			"Failed to find requested datapath: ", err)
-
-		text := fmt.Sprintf("switch '%s' not found", dpid)
-
-		wf.Write(rw, models.Error{text}, http.StatusNotFound)
 		return
 	}
 
-	var links []models.Link
-	var link mech.LinkManagerContext
+	linkModels := make([]models.Link, 0)
 
-	if err := context.Link.Context(&link); err != nil {
-		log.ErrorLog("link_handlers/INDEX_HANDLER",
-			"Failed to retrieve link context: ", err)
+	for _, switchPort := range context.Mech.Switch.PortList() {
+		linkPort := context.LinkContext.Port(switchPort.Number)
 
-		text := fmt.Sprintf("failed to access database")
-
-		wf.Write(rw, models.Error{text}, http.StatusNotFound)
-		return
-	}
-
-	for _, switchPort := range context.Switch.PortList() {
-		linkPort := link.Port(switchPort.Number)
-
-		links = append(links, models.Link{
-			Encapsulation: models.NullString(link.Driver),
+		linkModels = append(linkModels, models.Link{
+			Encapsulation: models.NullString(context.LinkContext.Driver),
 			Addr:          models.NullString(linkPort.Addr),
 			InterfaceName: switchPort.Name,
 			Interface:     switchPort.Number,
 		})
 	}
 
-	wf.Write(rw, links, http.StatusOK)
+	context.W.Write(rw, linkModels, http.StatusOK)
 }
 
 func (h *LinkHandler) createHandler(rw http.ResponseWriter, r *http.Request) {
 	log.InfoLog("link_handlers/CREATE_HANDLER",
 		"Got request to create link layer address")
 
-	rf, wf := Format(r)
-
-	mechanism, switchPort, err := h.context(rw, r)
+	context, err := h.context(rw, r)
 	if err != nil {
 		return
 	}
 
-	var link models.Link
-	if err = rf.Read(r, &link); err != nil {
+	var linkModel models.Link
+
+	if err = context.R.Read(r, &linkModel); err != nil {
 		log.ErrorLog("link_handlers/CREATE_HANDLER",
 			"Failed to read request body: ", err)
 
 		body := models.Error{"failed to read request body"}
-		wf.Write(rw, body, http.StatusBadRequest)
+		context.W.Write(rw, body, http.StatusBadRequest)
 		return
 	}
 
-	context := &mech.LinkManagerContext{
-		Datapath: mechanism.Switch.ID(),
-		Driver:   link.Encapsulation.String(),
-		Ports: []mech.LinkPort{
-			{link.Addr.String(), switchPort.Number},
-		},
+	port := mech.LinkPort{
+		Addr: linkModel.Addr.String(),
+		Port: context.Port.Number,
 	}
 
-	if err = mechanism.Link.UpdateLink(context); err != nil {
+	linkContext := &mech.LinkManagerContext{
+		Datapath: context.Mech.Switch.ID(),
+		Driver:   linkModel.Encapsulation.String(),
+		Ports:    []mech.LinkPort{port},
+	}
+
+	if err = context.Link.UpdateLink(linkContext); err != nil {
 		log.ErrorLog("link_handlers/CREATE_HANDLER",
 			"Failed to createa a new L2 address: ", err)
 
 		body := models.Error{"failed update link"}
-		wf.Write(rw, body, http.StatusConflict)
+		context.W.Write(rw, body, http.StatusConflict)
 		return
 	}
 
-	rw.WriteHeader(http.StatusOK)
+	context.W.Write(rw, nil, http.StatusOK)
 }
 
 func (h *LinkHandler) showHandler(rw http.ResponseWriter, r *http.Request) {
 	log.InfoLog("link_handlers/SHOW_HANDLER",
 		"Got request to show L2 address")
 
-	wf := WriteFormat(r)
-
-	context, switchPort, err := h.context(rw, r)
+	context, err := h.context(rw, r)
 	if err != nil {
 		return
 	}
 
-	var link mech.LinkManagerContext
-	context.Link.Context(&link)
-	linkPort := link.Port(switchPort.Number)
+	linkContext := context.LinkContext
+	linkPort := linkContext.Port(context.Port.Number)
 
 	body := models.Link{
-		Encapsulation: models.NullString(link.Driver),
+		Encapsulation: models.NullString(linkContext.Driver),
 		Addr:          models.NullString(linkPort.Addr),
-		InterfaceName: switchPort.Name,
-		Interface:     switchPort.Number,
+		InterfaceName: context.Port.Name,
+		Interface:     context.Port.Number,
 	}
 
 	// Return interface link data.
-	wf.Write(rw, body, http.StatusOK)
+	context.W.Write(rw, body, http.StatusOK)
 }
 
 func (h *LinkHandler) destroyHandler(rw http.ResponseWriter, r *http.Request) {
 	log.InfoLog("link_handlers/DESTROY_HANDLER",
 		"Got request to destroy L2 address")
 
-	wf := WriteFormat(r)
-
-	mechanism, switchPort, err := h.context(rw, r)
+	context, err := h.context(rw, r)
 	if err != nil {
 		return
 	}
 
-	context := &mech.LinkManagerContext{
-		Datapath: mechanism.Switch.ID(),
-		Ports:    []mech.LinkPort{{"", switchPort.Number}},
+	linkContext := &mech.LinkManagerContext{
+		Datapath: context.Mech.Switch.ID(),
+		Ports:    []mech.LinkPort{{Port: context.Port.Number}},
 	}
 
-	if err = mechanism.Link.DeleteLink(context); err != nil {
+	if err = context.Link.DeleteLink(linkContext); err != nil {
 		log.ErrorLog("link_handlers/DELETE_HANDLER",
 			"Failed to delete link layer address: ", err)
 
 		body := models.Error{"failed update link"}
-		wf.Write(rw, body, http.StatusConflict)
+		context.W.Write(rw, body, http.StatusConflict)
 		return
 	}
 
-	rw.WriteHeader(http.StatusOK)
+	context.W.Write(rw, nil, http.StatusOK)
 }

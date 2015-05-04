@@ -75,7 +75,7 @@ func (m *ICMPMechanism) UpdateNetwork(context *mech.NetworkContext) error {
 		// Notify controller, when flow removed
 		Flags:        ofp.FF_SEND_FLOW_REM,
 		Priority:     30, // Use non-zero priority
-		Match:        EchoRequest(context.Addr.Bytes()),
+		Match:        EchoRequest(context.NetworkAddr.Bytes()),
 		Instructions: instructions,
 	}
 
@@ -101,7 +101,7 @@ func (m *ICMPMechanism) UpdateNetwork(context *mech.NetworkContext) error {
 func (m *ICMPMechanism) DeleteNetwork(context *mech.NetworkContext) error {
 	// Flush ICMP flow for specified address (if any).
 	err := of.Send(m.C.Switch.Conn(), ofputil.FlowFlush(
-		0, EchoRequest(context.Addr.Bytes()),
+		0, EchoRequest(context.NetworkAddr.Bytes()),
 	))
 
 	if err != nil {
@@ -132,18 +132,17 @@ func (m *ICMPMechanism) icmpEchoHandler(rw of.ResponseWriter, r *of.Request) {
 	var pdu2 mech.LinkFrame
 	var pdu3 mech.NetworkPacket
 
+	//var network mech.NetworkMechanismManager
+	//m.C.Link.Mechanism(
+
 	// TODO: differ ofp_packet_in messages by cookies.
-	lldriver, err := m.C.Link.Driver()
+	lldriver, err := mech.LinkDrv(m.C)
 	if err != nil {
-		log.InfoLog("icmp/PACKET_IN_HANDLER",
-			"Link layer driver is not initialized: ", err)
 		return
 	}
 
-	nldriver, err := m.C.Network.Driver()
+	nldriver, err := mech.NetworkDrv(m.C)
 	if err != nil {
-		log.InfoLog("icmp/PACKET_IN_HANDLER",
-			"Network layer driver is not intialized: ", err)
 		return
 	}
 

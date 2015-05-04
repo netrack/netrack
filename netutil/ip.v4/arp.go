@@ -90,7 +90,7 @@ func (m *ARPMechanism) Enable(c *mech.MechanismContext) {
 	m.BaseMechanism.Enable(c)
 
 	// Register resolve function by function address.
-	m.C.Func.RegisterFunc((*ARPMechanism).ResolveFunc, resolveFuncWrapper)
+	m.C.Func.RegisterFunc((*ARPMechanism).Lookup, resolveFuncWrapper)
 
 	// Handle incoming ARP requests.
 	m.C.Mux.HandleFunc(of.T_PACKET_IN, m.packetInHandler)
@@ -167,27 +167,12 @@ func (m *ARPMechanism) UpdateNetwork(context *mech.NetworkContext) error {
 	log.DebugLog("arp/UPDATE_NETWORK",
 		"Got update network request")
 
-	lldriver, err := m.C.Link.Driver()
-	if err != nil {
-		log.ErrorLog("arp/UPDATE_NETWORK_LLDRIVER",
-			"Network layer driver is not intialized: ", err)
-		return err
-	}
-
-	// Get link layer address associated with ingress port.
-	lladdr, err := lldriver.Addr(context.Port)
-	if err != nil {
-		log.ErrorLogf("arp/UPDATE_NETWORK_LLADDR",
-			"Failed to resolve port '%s' hardware address: '%s'", context.Port, err)
-		return err
-	}
-
 	// Match broadcast ARP requests to resolve updated address.
 	match := ofp.Match{ofp.MT_OXM, []ofp.OXM{
 		ofputil.EthType(uint16(iana.ETHT_ARP), nil),
 		ofputil.ARPOpType(uint16(l3.ARPOT_REQUEST), nil),
 		ofputil.ARPTargetHWAddr(l2.HWUnspec, nil),
-		ofputil.ARPTargetProtoAddr(context.Addr.Bytes(), nil),
+		ofputil.ARPTargetProtoAddr(context.NetworkAddr.Bytes(), nil),
 	}}
 
 	// Send all such packets to controller
@@ -228,9 +213,9 @@ func (m *ARPMechanism) UpdateNetwork(context *mech.NetworkContext) error {
 	// Match direct messages to receive ARP responses.
 	match = ofp.Match{ofp.MT_OXM, []ofp.OXM{
 		ofputil.EthType(uint16(iana.ETHT_ARP), nil),
-		ofputil.EthDstAddr(lladdr.Bytes(), nil),
+		ofputil.EthDstAddr(context.LinkAddr.Bytes(), nil),
 		ofputil.ARPOpType(uint16(l3.ARPOT_REPLY), nil),
-		ofputil.ARPTargetProtoAddr(context.Addr.Bytes(), nil),
+		ofputil.ARPTargetProtoAddr(context.NetworkAddr.Bytes(), nil),
 	}}
 
 	// Send all such packets to controller
@@ -284,7 +269,7 @@ func (m *ARPMechanism) DeleteNetwork(context *mech.NetworkContext) error {
 
 	match := ofp.Match{ofp.MT_OXM, []ofp.OXM{
 		ofputil.EthType(uint16(iana.ETHT_ARP), nil),
-		ofputil.ARPTargetProtoAddr(context.Addr.Bytes(), nil),
+		ofputil.ARPTargetProtoAddr(context.NetworkAddr.Bytes(), nil),
 	}}
 
 	err := of.Send(m.C.Switch.Conn(),
@@ -323,17 +308,13 @@ func (m *ARPMechanism) arpRequestHandler(rw of.ResponseWriter, r *of.Request) {
 	log.InfoLog("arp/ARP_REQUEST_HANDLER",
 		"Got ARP requets handler")
 
-	lldriver, err := m.C.Link.Driver()
+	lldriver, err := mech.LinkDrv(m.C)
 	if err != nil {
-		log.InfoLog("arp/ARP_REQUEST_HANDLER",
-			"Link layer driver is not intialized: ", err)
 		return
 	}
 
-	nldriver, err := m.C.Network.Driver()
+	nldriver, err := mech.NetworkDrv(m.C)
 	if err != nil {
-		log.InfoLog("arp/ARP_REQUEST_HANDLER",
-			"Network layer driver is not intialized: ", err)
 		return
 	}
 
@@ -409,17 +390,13 @@ func (m *ARPMechanism) arpReplyHandler(rw of.ResponseWriter, r *of.Request) {
 	log.InfoLog("arp/ARP_REPLY_HANDLER",
 		"Got ARP reply message")
 
-	lldriver, err := m.C.Link.Driver()
+	lldriver, err := mech.LinkDrv(m.C)
 	if err != nil {
-		log.InfoLog("arp/ARP_REPLY_HANDLER",
-			"Link layer driver is not intialized: ", err)
 		return
 	}
 
-	nldriver, err := m.C.Network.Driver()
+	nldriver, err := mech.NetworkDrv(m.C)
 	if err != nil {
-		log.InfoLog("arp/ARP_REPLY_HANDLER",
-			"Network layer driver is not intialized: ", err)
 		return
 	}
 
@@ -446,7 +423,7 @@ func (m *ARPMechanism) arpReplyHandler(rw of.ResponseWriter, r *of.Request) {
 	m.releaseRequest(nladdr)
 }
 
-// Wrapper of ARPMechanism.ResolveFunc
+// Wrapper of ARPMechanism.Lookup
 func resolveFuncWrapper(param rpc.Param, result rpc.Result) (err error) {
 	var arpMech ARPMechanism
 	var nladdr mech.NetworkAddr
@@ -459,30 +436,26 @@ func resolveFuncWrapper(param rpc.Param, result rpc.Result) (err error) {
 	}
 
 	var lladdr mech.LinkAddr
-	if lladdr, err = arpMech.ResolveFunc(nladdr, port); err == nil {
+	if lladdr, err = arpMech.Lookup(nladdr, port); err == nil {
 		return result.Return(lladdr)
 	}
 
 	return err
 }
 
-func (m *ARPMechanism) ResolveFunc(addr mech.NetworkAddr, port uint32) (mech.LinkAddr, error) {
+func (m *ARPMechanism) Lookup(addr mech.NetworkAddr, port uint32) (mech.LinkAddr, error) {
 	if neigh, ok := m.neighTable.Lookup(addr); ok {
 		// Success, table hit.
 		return neigh.LinkAddr, nil
 	}
 
-	lldriver, err := m.C.Link.Driver()
+	lldriver, err := mech.LinkDrv(m.C)
 	if err != nil {
-		log.ErrorLog("arp/RESOLVE_FUNC",
-			"Link layer driver is not intialized: ", err)
 		return nil, err
 	}
 
-	nldriver, err := m.C.Network.Driver()
+	nldriver, err := mech.NetworkDrv(m.C)
 	if err != nil {
-		log.ErrorLog("arp/RESOLVE_FUNC",
-			"Network layer driver is not intialized: ", err)
 		return nil, err
 	}
 

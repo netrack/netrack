@@ -43,7 +43,7 @@ func (m *IPMechanism) Disable() {
 
 func (m *IPMechanism) UpdateNetwork(context *mech.NetworkContext) error {
 	log.DebugLog("ipv4/UPDATE_NETWORK",
-		"Got update network postcommit request: ", context.Addr)
+		"Got update network postcommit request: ", context.NetworkAddr)
 
 	ipv4Routing := new(IPv4Routing)
 
@@ -57,7 +57,7 @@ func (m *IPMechanism) UpdateNetwork(context *mech.NetworkContext) error {
 	// Update routing table with new address
 	return ipv4Routing.UpdateRoute(&mech.RouteContext{
 		Type:    string(mechutil.ConnectedRoute),
-		Network: context.Addr.String(),
+		Network: context.NetworkAddr.String(),
 		Port:    context.Port,
 	})
 }
@@ -78,7 +78,7 @@ func (m *IPMechanism) DeleteNetwork(context *mech.NetworkContext) error {
 	// Delete route from the routing table.
 	return ipv4Routing.DeleteRoute(&mech.RouteContext{
 		Type:    string(mechutil.ConnectedRoute),
-		Network: context.Addr.String(),
+		Network: context.NetworkAddr.String(),
 		Port:    context.Port,
 	})
 }

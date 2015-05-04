@@ -107,7 +107,7 @@ func (m *IPv4Routing) Activate() {
 }
 
 func (m *IPv4Routing) UpdateRoute(context *mech.RouteContext) error {
-	nldriver, err := m.C.Network.Driver()
+	nldriver, err := mech.NetworkDrv(m.C)
 	if err != nil {
 		log.InfoLog("routing/CREATE_ROUTE",
 			"Network layer driver is not intialized: ", err)
@@ -182,7 +182,7 @@ func (m *IPv4Routing) DeleteRoute(context *mech.RouteContext) error {
 	log.DebugLog("routing/DELETE_ROUTE",
 		"Got delete route request")
 
-	nldriver, err := m.C.Network.Driver()
+	nldriver, err := mech.NetworkDrv(m.C)
 	if err != nil {
 		log.InfoLog("routing/DELETE_ROUTE",
 			"Network layer driver is not intialized: ", err)
@@ -254,14 +254,14 @@ func (m *IPv4Routing) ipPacketHandler(rw of.ResponseWriter, r *of.Request) {
 	var pdu2 mech.LinkFrame
 	var pdu3 mech.NetworkPacket
 
-	lldriver, err := m.C.Link.Driver()
+	lldriver, err := mech.LinkDrv(m.C)
 	if err != nil {
 		log.InfoLog("routing/IP_PACKET_HANDLER_LLDRIVER",
 			"Link layer driver is not initialized: ", err)
 		return
 	}
 
-	nldriver, err := m.C.Network.Driver()
+	nldriver, err := mech.NetworkDrv(m.C)
 	if err != nil {
 		log.InfoLog("routing/IP_PACKET_HANDLER",
 			"Network layer driver is not intialized: ", err)
@@ -295,8 +295,15 @@ func (m *IPv4Routing) ipPacketHandler(rw of.ResponseWriter, r *of.Request) {
 		return
 	}
 
+	var network mech.NetworkMechanismManager
+	if err = m.C.Managers.Obtain(&network); err != nil {
+		log.ErrorLog("routing/PACKET_IN_HANDLER",
+			"Failed to obtain network layer manager: ", err)
+		return
+	}
+
 	var arpMech ARPMechanism
-	err = m.C.Network.Mechanism(ARPMechanismName, &arpMech)
+	err = network.Mechanism(ARPMechanismName, &arpMech)
 	if err != nil {
 		log.ErrorLog("routing/IP_PACKET_HANDLER",
 			"ARP network mechanism is not found: ", err)
@@ -308,7 +315,7 @@ func (m *IPv4Routing) ipPacketHandler(rw of.ResponseWriter, r *of.Request) {
 		netwAddr = pdu3.DstAddr
 	}
 
-	dstAddr, err := arpMech.ResolveFunc(netwAddr, route.Port)
+	dstAddr, err := arpMech.Lookup(netwAddr, route.Port)
 	if err != nil {
 		log.ErrorLog("routing/IP_PACKET_HANDLER",
 			"Failed to resolve link layer address: ", err)

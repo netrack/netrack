@@ -7,6 +7,7 @@ import (
 
 	"github.com/netrack/netrack/database"
 	"github.com/netrack/netrack/logging"
+	"github.com/netrack/netrack/mechanism/injector"
 	"github.com/netrack/netrack/mechanism/rpc"
 	"github.com/netrack/openflow"
 )
@@ -49,21 +50,13 @@ type MechanismContext struct {
 	// OpenFlow multiplexer handler.
 	Mux *of.ServeMux
 
-	// Link layer mechanism manager.
-	Link LinkMechanismManager
-
-	// Network layer mechanism manager.
-	Network NetworkMechanismManager
-
 	// Route mechanism manager.
 	Routing RouteMechanismManager
 
 	// Extention mechanism manager.
 	Extension *ExtensionMechanismManager
-}
 
-func (c *MechanismContext) Manager(interface{}) bool {
-	return false
+	Managers injector.Injector
 }
 
 // Mechanism describes switch drivers
@@ -164,6 +157,9 @@ type BaseMechanismManager struct {
 	Datapath string
 
 	Mechanisms MechanismMap
+
+	enabled   int64
+	activated int64
 }
 
 func (m *BaseMechanismManager) Mechanism(name string, mech Mechanism) (err error) {
@@ -285,6 +281,8 @@ func (m *BaseMechanismManager) Update(model db.Model, context interface{}, fn fu
 
 // Enable enables all registered mechanisms
 func (m *BaseMechanismManager) Enable(c *MechanismContext) {
+	atomic.CompareAndSwapInt64(&m.enabled, 0, 1)
+
 	m.Mechanisms.Iter(func(_ string, mechanism Mechanism) bool {
 		mechanism.Enable(c)
 		return true
@@ -304,12 +302,19 @@ func (m *BaseMechanismManager) EnableByName(name string, c *MechanismContext) er
 		return ErrMechanismAlreadyEnabled
 	}
 
+	atomic.CompareAndSwapInt64(&m.enabled, 0, 1)
 	mechanism.Enable(c)
 	return nil
 }
 
+func (m *BaseMechanismManager) Enabled() bool {
+	return atomic.LoadInt64(&m.enabled) == 1
+}
+
 // Activate activates all registered mechanisms
 func (m *BaseMechanismManager) Activate() {
+	atomic.CompareAndSwapInt64(&m.activated, 0, 1)
+
 	m.Mechanisms.Iter(func(_ string, mechanism Mechanism) bool {
 		mechanism.Activate()
 		return true
@@ -329,8 +334,13 @@ func (m *BaseMechanismManager) ActivateByName(name string) error {
 		return ErrMechanismAlreadyActivated
 	}
 
+	atomic.CompareAndSwapInt64(&m.activated, 0, 1)
 	mechanism.Activate()
 	return nil
+}
+
+func (m *BaseMechanismManager) Activated() bool {
+	return atomic.LoadInt64(&m.activated) == 1
 }
 
 // Disable disables all registered mechanisms

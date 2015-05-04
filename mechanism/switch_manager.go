@@ -5,6 +5,7 @@ import (
 	"sync"
 
 	"github.com/netrack/netrack/logging"
+	"github.com/netrack/netrack/mechanism/injector"
 	"github.com/netrack/netrack/mechanism/rpc"
 	"github.com/netrack/openflow"
 )
@@ -64,59 +65,42 @@ func (m *SwitchManager) CreateSwitch(conn of.OFPConn) error {
 	log.DebugLog("switch_manager/CREATE_SWITCH",
 		"Switch successfully booted for ", r.Proto)
 
-	// Create mechanism managers
-	manager := BaseMechanismManager{sw.ID(), LinkMechanisms()}
-	linkManager := &BaseLinkMechanismManager{
-		BaseMechanismManager: manager,
-		Drivers:              LinkDrivers(),
-	}
-
-	manager = BaseMechanismManager{sw.ID(), NetworkMechanisms()}
-	networkManager := &BaseNetworkMechanismManager{
-		BaseMechanismManager: manager,
-		Drivers:              NetworkDrivers(),
-	}
+	linkManager := NewLinkMechanismManager()
 
 	extensionManager := &ExtensionMechanismManager{
-		BaseMechanismManager{sw.ID(), ExtensionMechanisms()},
+		BaseMechanismManager{sw.ID(), ExtensionMechanisms(), 0, 0},
 	}
 
-	manager = BaseMechanismManager{sw.ID(), RouteMechanisms()}
+	manager := BaseMechanismManager{sw.ID(), RouteMechanisms(), 0, 0}
 	routeManager := &BaseRouteMechanismManager{
 		BaseMechanismManager: manager,
 	}
 
 	// Create a new mechanism driver context
 	context := &MechanismContext{
-		Switch:    sw,
-		Func:      rpc.New(),
-		Mux:       of.NewServeMux(),
-		Link:      linkManager,
-		Network:   networkManager,
+		Switch: sw,
+		Func:   rpc.New(),
+		Mux:    of.NewServeMux(),
+		//Link:   linkManager,
+		//Network:   networkManager,
 		Routing:   routeManager,
 		Extension: extensionManager,
+		Managers:  injector.New(),
 	}
 
 	linkManager.Enable(context)
-	networkManager.Enable(context)
 	routeManager.Enable(context)
 	extensionManager.Enable(context)
 
 	// Since switch already booted, activate drivers
 	// TODO: make this configurable (or deactivate all by default)
 	linkManager.Activate()
-	networkManager.Activate()
 	routeManager.Activate()
 	extensionManager.Activate()
 
 	if err = linkManager.CreateLink(); err != nil {
 		log.ErrorLog("switch_manager/CREATE_SWITCH",
 			"Failed to create link configuration: ", err)
-	}
-
-	if err = networkManager.CreateNetwork(); err != nil {
-		log.ErrorLog("switch_manager/CREATE_SWITCH",
-			"Failed to create network configuration: ", err)
 	}
 
 	if err = routeManager.CreateRoutes(); err != nil {

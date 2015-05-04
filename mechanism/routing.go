@@ -254,12 +254,36 @@ func (m *routingMechanismManager) NetworkDriver() (NetworkDriver, error) {
 	return m.nldrv, nil
 }
 
-func (m *routingMechanismManager) UpdateNetwork(context *NetworkContext) error {
-	log.DebugLog("routing/UPDATE_NETWORK_HOOK",
-		"Got request to update network")
+func (m *routingMechanismManager) CreateNetworkPreCommit(context *NetworkContext) error {
+	log.DebugLog("routing/CREATE_NETWORK_PRECOMMIT",
+		"Got create precommit request")
 
 	// Persist network layer driver
 	m.SetNetworkDriver(context.NetworkDriver)
+	return nil
+}
+
+func (m *routingMechanismManager) CreateNetworkPostCommit(context *NetworkContext) error {
+	log.DebugLog("routing/CREATE_NETWORK_POSTCOMMIT",
+		"Got create postcommit request")
+
+	// Persist network layer driver
+	m.SetNetworkDriver(context.NetworkDriver)
+	return nil
+}
+
+func (m *routingMechanismManager) UpdateNetworkPreCommit(context *NetworkContext) error {
+	log.DebugLog("routing/UPDATE_NETWORK_PRECOMMIT",
+		"Got update precommit request")
+
+	// Persist network layer driver
+	m.SetNetworkDriver(context.NetworkDriver)
+	return err
+}
+
+func (m *routingMechanismManager) UpdateNetworkPostCommit() error {
+	log.DebugLog("routing/UPDATE_NETWORK_POSTCOMMIT",
+		"Got update network postcommit request")
 
 	err := m.UpdateRoutes(&RoutingManagerContext{
 		Datapath: m.Datapath, Routes: []*Route{{
@@ -270,16 +294,16 @@ func (m *routingMechanismManager) UpdateNetwork(context *NetworkContext) error {
 	})
 
 	if err != nil {
-		log.ErrorLog("routing/UPDATE_NETORK_HOOK",
+		log.ErrorLog("routing/UPDATE_NETORK_POSTCOMMIT",
 			"Failed update routing configuration: ", err)
 	}
 
 	return err
 }
 
-func (m *routingMechanismManager) DeleteNetwork(context *NetworkContext) error {
-	log.DebugLog("routing/DELETE_NETWORK_HOOK",
-		"Got request to delete network")
+func (m *routingMechanismManager) DeleteNetworkPreCommit(context *NetworkContext) error {
+	log.DebugLog("routing/DELETE_NETWORK_PRECOMMIT",
+		"Got delete network precommit request")
 
 	err := m.DeleteRoutes(&RoutingManagerContext{
 		Datapath: m.Datapath, Routes: []*Route{{
@@ -290,11 +314,17 @@ func (m *routingMechanismManager) DeleteNetwork(context *NetworkContext) error {
 	})
 
 	if err != nil {
-		log.ErrorLog("routing/DELETE_NETWORK_HOOK",
+		log.ErrorLog("routing/DELETE_NETWORK_PRECOMMIT",
 			"Failed update routing configuration: ", err)
 	}
 
 	return err
+}
+
+func (m *routingMechanismManager) DeleteNetworkPostCommit() error {
+	log.DebugLog("routing/DELETE_NETWORK_PRECOMMIT",
+		"Got delete network postcommit request")
+	return nil
 }
 
 // Iter calls specified function for all registered link layer mechanisms.

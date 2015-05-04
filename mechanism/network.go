@@ -225,11 +225,19 @@ func (d *BaseNetworkDriver) Addr(LinkAddr) (NetworkAddr, error) {
 type NetworkMechanism interface {
 	Mechanism
 
+	CreateNetworkPreCommit(*NetworkContext) error
+
+	CreateNetworkPostCommit() error
+
 	// UpdateNetwork is called for all changes to network state.
-	UpdateNetwork(*NetworkContext) error
+	UpdateNetworkPreCommit(*NetworkContext) error
+
+	UpdateNetworkPostCommit(*NetworkContext) error
 
 	// DeleteNetwork erases all allocated resources.
-	DeleteNetwork(*NetworkContext) error
+	DeleteNetworkPreCommit(*NetworkContext) error
+
+	DeleteNetworkPostCommit() error
 }
 
 // BaseNetworkMechanism implements NetworkMechanism interface.
@@ -457,46 +465,63 @@ func (m *networkMechanismManager) Activate() {
 		"Network mechanism manager activated")
 }
 
-func (m *networkMechanismManager) CreateLink(context *LinkContext) error {
+func (m *networkMechanismManager) CreateLinkPreCommit(context *LinkContext) error {
 	log.DebugLog("network/CREATE_LINK_HOOK",
 		"Got request to create link")
 
 	// Persist link layer driver
 	m.SetLinkDriver(context.Driver)
+	return nil
+}
 
-	// Ports to restore
-	ports := []NetworkPort{{Port: context.Port}}
+func (m *networkMechanismManager) CreateLinkPostCommit() error {
+	log.DebugLog("network/CREATE_LINK_POSTCOMMIT",
+		"Got create link postcommit request")
 
-	// Restore state of specified network
-	return m.CreateNetwork(&NetworkManagerContext{
-		Datapath: m.Datapath,
-		Ports:    ports,
-	})
+	err := m.CreateNetwork()
+	if err != nil {
+		log.ErrorLog("network/CREATE_LINK_POSTCOMMIT",
+			"Failed to restore network configuration: ", err)
+	}
+
+	return err
 }
 
 // UpdateLink implements LinkMechanism interface, so network manager
 // can react on link changese and forward requests to the network layer mechanims.
 // Generally, on changing link layer address, network mechanisms should
 // react appropriately.
-func (m *networkMechanismManager) UpdateLink(context *LinkContext) error {
-	log.DebugLog("network/UPDATE_LINK_HOOK",
-		"Got request to delete link")
+func (m *networkMechanismManager) UpdateLinkPreCommit(context *LinkContext) error {
+	log.DebugLog("network/UPDATE_LINK_PRECOMMIT",
+		"Got update link precommit request")
 
-	m.lldrvLock.Lock()
-	defer m.lldrvLock.Unlock()
+	// This call does not require datatabase chanes
 
 	// Persist link layer driver
-	m.lldrv = context.Driver
+	m.SetLinkDriver(context.Driver)
+	return nil
+}
 
+func (m *networkMechanismManager) UpdateLinkPostCommit(context *LinkContext) error {
+	log.DebugLog("network/UPDATE_LINK_POSTCOMMIT",
+		"Got update link postcommit request")
+
+	// Persist link layer driver
+	m.SetLinkDriver(context.Driver)
 	return nil
 }
 
 // DeleteLink implements LinkMechanism interface. On link layer deletion
 // network layer should be turned off either.
-func (m *networkMechanismManager) DeleteLink(context *LinkContext) error {
+func (m *networkMechanismManager) DeleteLinkPreCommit(context *LinkContext) error {
 	log.DebugLog("network/DELETE_LINK_HOOK",
 		"Got request to delete link")
+	return nil
+}
 
+func (m *networkMechanismManager) DeleteLinkPostCommit() error {
+	log.DebugLog("network/DELETE_LINK_POSTCOMMIT",
+		"Got delete link postcommit request")
 	return nil
 }
 
@@ -534,17 +559,14 @@ func (m *networkMechanismManager) Iter(fn func(NetworkMechanism) bool) {
 	})
 }
 
-type networkMechanismFunc func(NetworkMechanism, *NetworkContext) error
-
-func (m *networkMechanismManager) do(fn networkMechanismFunc, context *NetworkContext) (err error) {
+func (m *networkMechanismManager) do(fn func(NetworkMechanism) error) (err error) {
 	m.Iter(func(mechanism NetworkMechanism) bool {
 		// Forward request only to activated mechanisms.
 		if !mechanism.Activated() {
 			return true
 		}
 
-		err = fn(mechanism, context)
-		if err != nil {
+		if err = fn(mechanism); err != nil {
 			log.ErrorLog("network/ALTER_NETWORK",
 				"Failed to alter network layer mechanism: ", err)
 			return false
@@ -556,13 +578,13 @@ func (m *networkMechanismManager) do(fn networkMechanismFunc, context *NetworkCo
 	return
 }
 
-func (m *networkMechanismManager) SetDriver(name string) (NetworkDriver, error) {
+func (m *networkMechanismManager) SetDriver(name string) error {
 	m.drvLock.Lock()
 	defer m.drvLock.Unlock()
 
 	// If driver already activated.
 	if m.drv != nil && m.drv.Name() == name {
-		return m.drv, nil
+		return nil
 	}
 
 	// Search for a new driver.
@@ -570,11 +592,11 @@ func (m *networkMechanismManager) SetDriver(name string) (NetworkDriver, error) 
 	if !ok {
 		log.ErrorLog("network/NETWORK_DRIVER",
 			"Requested network driver not found: ", name)
-		return nil, ErrNetworkNotRegistered
+		return ErrNetworkNotRegistered
 	}
 
 	m.drv = drv
-	return m.drv, nil
+	return nil
 }
 
 // Driver returns active network layer driver.
@@ -611,8 +633,50 @@ func (m *networkMechanismManager) Context() (*NetworkManagerContext, error) {
 	return context, nil
 }
 
+func (m *networkMechanismManager) networkContext(port NetworkPort) (*NetworkContext, error) {
+	lldriver, err := m.LinkDriver()
+	if err != nil {
+		return nil, err
+	}
+
+	nldriver, err := m.Driver()
+	if err != nil {
+		return nil, err
+	}
+
+	lladdr, err := lldriver.Addr(port.Port)
+	if err != nil {
+		log.ErrorLog("network/NETWORK_CONTEXT",
+			"Link layer address is not associated with port: ", port.Port)
+		return nil, err
+	}
+
+	nladdr, err := nldriver.ParseAddr(port.Addr)
+	if err != nil {
+		log.ErrorLog("network/NETWORK_CONTEXT",
+			"Failed to parse network layer address: ", err)
+		return nil, err
+	}
+
+	if err = nldriver.UpdateAddr(port.Port, nladdr); err != nil {
+		log.ErrorLog("network/NETWORK_CONTEXT",
+			"Failed to update network layer driver: ", err)
+		return nil, err
+	}
+
+	context := &NetworkContext{
+		NetworkAddr:   nladdr,
+		NetworkDriver: nldriver,
+		LinkAddr:      lladdr,
+		LinkDriver:    lldriver,
+		Port:          port.Port,
+	}
+
+	return context, nil
+}
+
 // CreateNetwork loads persisted network layer configuration.
-func (m *networkMechanismManager) CreateNetwork(context *NetworkManagerContext) error {
+func (m *networkMechanismManager) CreateNetwork() error {
 	network := new(NetworkManagerContext)
 
 	create := func(fn func() error) error {
@@ -621,34 +685,15 @@ func (m *networkMechanismManager) CreateNetwork(context *NetworkManagerContext) 
 		)
 	}
 
-	alter := func(lldriver LinkDriver, nldriver NetworkDriver, port NetworkPort) error {
-		lladdr, err := lldriver.Addr(port.Port)
+	alter := func(port NetworkPort) error {
+		networkContext, err := m.networkContext(port)
 		if err != nil {
-			log.ErrorLog("network/CREATE_NETWORK",
-				"Link layer address is not associated with port: ", port.Port)
-			return err
-		}
-
-		nladdr, err := nldriver.ParseAddr(port.Addr)
-		if err != nil {
-			log.ErrorLog("network/CREATE_NETWORK",
-				"Failed to parse network layer address: ", err)
-			return err
-		}
-
-		if err = nldriver.UpdateAddr(port.Port, nladdr); err != nil {
-			log.ErrorLog("network/CREATE_NETWORK",
-				"Failed to update network layer driver: ", err)
 			return err
 		}
 
 		// Broadcast request to all activated network mechanisms
-		err = m.do(NetworkMechanism.UpdateNetwork, &NetworkContext{
-			NetworkAddr:   nladdr,
-			NetworkDriver: nldriver,
-			LinkAddr:      lladdr,
-			LinkDriver:    lldriver,
-			Port:          port.Port,
+		err = m.do(func(nlmech NetworkMechanism) error {
+			return nlmech.CreateNetworkPreCommit(networkContext)
 		})
 
 		if err != nil {
@@ -659,6 +704,9 @@ func (m *networkMechanismManager) CreateNetwork(context *NetworkManagerContext) 
 		return err
 	}
 
+	m.lock.RLock()
+	defer m.lock.RUnlock()
+
 	return create(func() error {
 		// If driver equals to empty string, that mechanism was not
 		// previously activated, so there is nothing to configure
@@ -666,35 +714,30 @@ func (m *networkMechanismManager) CreateNetwork(context *NetworkManagerContext) 
 			return nil
 		}
 
-		// Load link layer driver
-		lldriver, err := m.LinkDriver()
-		if err != nil {
-			return err
-		}
-
 		// Restore state of the persited switch
-		nldriver, err := m.SetDriver(network.Driver)
+		err := m.SetDriver(network.Driver)
 		if err != nil {
 			return err
 		}
 
-		m.lock.RLock()
-		defer m.lock.RUnlock()
-
-		for _, port := range context.Ports {
-			port = network.Port(port.Port)
-			blank := NetworkPort{}
-
-			if port == blank {
-				continue
-			}
-
-			if err := alter(lldriver, nldriver, port); err != nil {
+		for _, port := range network.Ports {
+			if err := alter(port); err != nil {
+				log.ErrorLog("network/CREATE_NETWORK",
+					"Network create pre-commit failed: ", err)
 				return err
 			}
 		}
 
-		return nil
+		err = m.do(func(nlmech NetworkMechanism) error {
+			return nlmech.CreateNetworkPostCommit()
+		})
+
+		if err != nil {
+			log.ErrorLog("network/CREATE_NETWORK",
+				"Network create post-commit failed: ", err)
+		}
+
+		return err
 	})
 }
 
@@ -708,27 +751,14 @@ func (m *networkMechanismManager) UpdateNetwork(context *NetworkManagerContext) 
 		)
 	}
 
-	pre := func(lldriver LinkDriver, nldriver NetworkDriver, port NetworkPort) error {
-		lladdr, err := lldriver.Addr(port.Port)
+	pre := func(port NetworkPort) error {
+		networkContext, err := m.networkContext(port)
 		if err != nil {
-			log.ErrorLog("network/UPDATE_NETWORK_POSTCOMMIT",
-				"Link layer address is not assigned to port: ", err)
 			return err
 		}
 
-		nladdr, err := nldriver.ParseAddr(port.Addr)
-		if err != nil {
-			log.ErrorLog("network/UPDATE_NETWORK_PRECOMMIT",
-				"Failed to parse network layer address: ", err)
-			return err
-		}
-
-		err = m.do(NetworkMechanism.DeleteNetwork, &NetworkContext{
-			NetworkAddr:   nladdr,
-			NetworkDriver: nldriver,
-			LinkAddr:      lladdr,
-			LinkDriver:    lldriver,
-			Port:          port.Port,
+		err = m.do(func(nlmech NetworkMechanism) error {
+			return nlmech.UpdateNetworkPreCommit(networkContext)
 		})
 
 		if err != nil {
@@ -739,33 +769,14 @@ func (m *networkMechanismManager) UpdateNetwork(context *NetworkManagerContext) 
 		return err
 	}
 
-	post := func(lldriver LinkDriver, nldriver NetworkDriver, port NetworkPort) error {
-		lladdr, err := lldriver.Addr(port.Port)
+	post := func(port NetworkPort) error {
+		networkContext, err := m.networkContext(port)
 		if err != nil {
-			log.ErrorLog("network/UPDATE_NETWORK_POSTCOMMIT",
-				"Link layer address is not assigned to port: ", err)
 			return err
 		}
 
-		nladdr, err := nldriver.ParseAddr(port.Addr)
-		if err != nil {
-			log.ErrorLog("network/UPDATE_NETWORK_POSTCOMMIT",
-				"Failed to parse network layer address: ", err)
-			return err
-		}
-
-		if err = nldriver.UpdateAddr(port.Port, nladdr); err != nil {
-			log.ErrorLog("network/UPDATE_NETWORK_POSTCOMMIT",
-				"Failed to update network layer driver: ", err)
-			return err
-		}
-
-		err = m.do(NetworkMechanism.UpdateNetwork, &NetworkContext{
-			NetworkAddr:   nladdr,
-			NetworkDriver: nldriver,
-			LinkAddr:      lladdr,
-			LinkDriver:    lldriver,
-			Port:          port.Port,
+		err = m.do(func(nlmech NetworkMechanism) error {
+			return nlmech.UpdateNetworkPostCommit(networkContext)
 		})
 
 		if err != nil {
@@ -777,19 +788,18 @@ func (m *networkMechanismManager) UpdateNetwork(context *NetworkManagerContext) 
 	}
 
 	return update(func() error {
-		lldriver, err := m.LinkDriver()
+		_, err := m.LinkDriver()
 		if err != nil {
 			return err
 		}
 
-		nldriver, err := m.Driver()
+		_, err = m.Driver()
 		if err != nil && len(network.Ports) != 0 {
 			log.ErrorLog("network/UPDATE_NETWORK",
 				"Driver not found, but ports need to be updated")
 			return ErrNetworkNotInitialized
 		}
 
-		// If driver is not intialized
 		for _, port := range context.Ports {
 			// Get previous port coniguration
 			port = network.Port(port.Port)
@@ -801,13 +811,15 @@ func (m *networkMechanismManager) UpdateNetwork(context *NetworkManagerContext) 
 			}
 
 			// Precommit changes
-			if err := pre(lldriver, nldriver, port); err != nil {
-				return nil
+			if err := pre(port); err != nil {
+				log.ErrorLog("network/UPDATE_NETWORK",
+					"Network update pre-commit failed: ", err)
+				return err
 			}
 		}
 
 		// Set new driver
-		nldriver, err = m.SetDriver(context.Driver)
+		err = m.SetDriver(context.Driver)
 		if err != nil {
 			return err
 		}
@@ -816,7 +828,9 @@ func (m *networkMechanismManager) UpdateNetwork(context *NetworkManagerContext) 
 		network.Driver = context.Driver
 
 		for _, port := range context.Ports {
-			if err := post(lldriver, nldriver, port); err != nil {
+			if err := post(port); err != nil {
+				log.ErrorLog("network/UPDATE_NETWORK",
+					"Network update post-commit failed: ", err)
 				return err
 			}
 
@@ -844,9 +858,6 @@ func (m *networkMechanismManager) DeleteNetwork(context *NetworkManagerContext) 
 		return err
 	}
 
-	m.lock.RLock()
-	defer m.lock.RUnlock()
-
 	update := func(fn func() error) error {
 		return m.BaseMechanismManager.Update(
 			NetworkModel, network, fn,
@@ -872,35 +883,51 @@ func (m *networkMechanismManager) DeleteNetwork(context *NetworkManagerContext) 
 		}
 
 		// Forward event to activated mechanisms.
-		err = m.do(NetworkMechanism.DeleteNetwork, &NetworkContext{
-			NetworkDriver: nldriver,
-			NetworkAddr:   nladdr,
-			LinkDriver:    lldriver,
-			LinkAddr:      lladdr,
-			Port:          port.Port,
+		err = m.do(func(nlmech NetworkMechanism) error {
+			return nlmech.DeleteNetworkPreCommit(&NetworkContext{
+				NetworkDriver: nldriver,
+				NetworkAddr:   nladdr,
+				LinkDriver:    lldriver,
+				LinkAddr:      lladdr,
+				Port:          port.Port,
+			})
 		})
 
 		if err != nil {
 			log.ErrorLog("network/DELETE_NETWORK",
 				"Failed to delete network configuration: ", err)
-			return err
 		}
 
-		// Update network layer port configuration.
-		// This updated instance will be stored in a database.
-		network.DelPort(port)
-
 		//TODO: delete address from the driver
-		return nil
+		return err
 	}
+
+	m.lock.RLock()
+	defer m.lock.RUnlock()
 
 	return update(func() error {
 		for _, port := range context.Ports {
 			if err := alter(port); err != nil {
+				log.ErrorLog("network/DELETE_NETWORK",
+					"Network delete pre-commit failed: ", err)
 				return err
 			}
+
+			// Update network layer port configuration.
+			// This updated instance will be stored in a database.
+			network.DelPort(port)
+
 		}
 
-		return nil
+		err := m.do(func(nlmech NetworkMechanism) error {
+			return nlmech.DeleteNetworkPostCommit()
+		})
+
+		if err != nil {
+			log.ErrorLog("network/DELETE_NETWORK",
+				"Network delete post-commit failed: ", err)
+		}
+
+		return err
 	})
 }

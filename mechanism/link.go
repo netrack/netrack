@@ -224,33 +224,19 @@ type LinkMechanism interface {
 	Mechanism
 
 	// CreateLink is called upon link creation
-	CreateLink(*LinkContext) error
+	CreateLinkPreCommit(*LinkContext) error
+
+	CreateLinkPostCommit() error
 
 	// UpdateLink is called for all changes to link state.
-	UpdateLink(*LinkContext) error
+	UpdateLinkPreCommit(*LinkContext) error
+
+	UpdateLinkPostCommit(*LinkContext) error
 
 	// DeleteLink erases all allocated resources.
-	DeleteLink(*LinkContext) error
-}
+	DeleteLinkPreCommit(*LinkContext) error
 
-// BaseLinkMechanism implements LinkMechanism interface.
-type BaseLinkMechanism struct {
-	BaseMechanism
-}
-
-// CreateLink implements LinkMechanism interface.
-func (m *BaseLinkMechanism) CreateLink(c *LinkContext) error {
-	return nil
-}
-
-// CreateLink implements LinkMechanism interface.
-func (m *BaseLinkMechanism) UpdateLink(c *LinkContext) error {
-	return nil
-}
-
-// DeleteLink implements LinkMechanism interface.
-func (m *BaseLinkMechanism) DeleteLink(c *LinkContext) error {
-	return nil
+	DeleteLinkPostCommit() error
 }
 
 // LinkMechanismConstructor is a genereic
@@ -475,16 +461,14 @@ func (m *linkMechanismManager) Iter(fn func(LinkMechanism) bool) {
 	})
 }
 
-type linkMechanismFunc func(LinkMechanism, *LinkContext) error
-
-func (m *linkMechanismManager) do(fn linkMechanismFunc, context *LinkContext) (err error) {
+func (m *linkMechanismManager) do(fn func(LinkMechanism) error) (err error) {
 	m.Iter(func(mechanism LinkMechanism) bool {
 		// Forward request only to activated mechanisms.
 		if !mechanism.Activated() {
 			return true
 		}
 
-		if err = fn(mechanism, context); err != nil {
+		if err = fn(mechanism); err != nil {
 			log.ErrorLog("link/ALTER_LINK",
 				"Failed to alter link layer mechanism: ", err)
 			return false
@@ -496,13 +480,13 @@ func (m *linkMechanismManager) do(fn linkMechanismFunc, context *LinkContext) (e
 	return
 }
 
-func (m *linkMechanismManager) SetDriver(name string) (LinkDriver, error) {
+func (m *linkMechanismManager) SetDriver(name string) error {
 	m.drvLock.Lock()
 	defer m.drvLock.Unlock()
 
 	// If driver already activated.
 	if m.drv != nil && m.drv.Name() == name {
-		return m.drv, nil
+		return nil
 	}
 
 	// Search for a new driver.
@@ -510,11 +494,11 @@ func (m *linkMechanismManager) SetDriver(name string) (LinkDriver, error) {
 	if !ok {
 		log.ErrorLog("link/SET_LINK_DRIVER",
 			"Requested link driver not found: ", name)
-		return nil, ErrLinkNotRegistered
+		return ErrLinkNotRegistered
 	}
 
 	m.drv = drv
-	return m.drv, nil
+	return nil
 }
 
 // Driver implements LinkMechanismManager interface.
@@ -550,6 +534,34 @@ func (m *linkMechanismManager) Context() (*LinkManagerContext, error) {
 	return context, nil
 }
 
+func (m *linkMechanismManager) linkContext(port LinkPort) (*LinkContext, error) {
+	lldriver, err := m.Driver()
+	if err != nil {
+		return nil, err
+	}
+
+	lladdr, err := lldriver.ParseAddr(port.Addr)
+	if err != nil {
+		log.ErrorLog("link/LINK_CONTEXT",
+			"Failed to parse link layer address: ", err)
+		return nil, err
+	}
+
+	if err = lldriver.UpdateAddr(port.Port, lladdr); err != nil {
+		log.ErrorLog("link/LINK_CONTEXT",
+			"Failed to update link layer driver: ", err)
+		return nil, err
+	}
+
+	linkContext := &LinkContext{
+		Addr:   lladdr,
+		Port:   port.Port,
+		Driver: lldriver,
+	}
+
+	return linkContext, nil
+}
+
 func (m *linkMechanismManager) CreateLink() error {
 	link := new(LinkManagerContext)
 
@@ -559,24 +571,14 @@ func (m *linkMechanismManager) CreateLink() error {
 		)
 	}
 
-	alter := func(lldriver LinkDriver, port LinkPort) error {
-		addr, err := lldriver.ParseAddr(port.Addr)
+	alter := func(port LinkPort) error {
+		linkContext, err := m.linkContext(port)
 		if err != nil {
-			log.ErrorLog("link/CREATE_LINK",
-				"Failed to parse link layer address: ", err)
 			return err
 		}
 
-		if err = lldriver.UpdateAddr(port.Port, addr); err != nil {
-			log.ErrorLog("link/UPDATE_LINK",
-				"Failed to update link layer driver: ", err)
-			return err
-		}
-
-		err = m.do(LinkMechanism.CreateLink, &LinkContext{
-			Addr:   addr,
-			Port:   port.Port,
-			Driver: lldriver,
+		err = m.do(func(llmech LinkMechanism) error {
+			return llmech.CreateLinkPreCommit(linkContext)
 		})
 
 		if err != nil {
@@ -597,7 +599,7 @@ func (m *linkMechanismManager) CreateLink() error {
 			"Restoring link layer")
 
 		// Restore state of the persited switch
-		lldriver, err := m.SetDriver(link.Driver)
+		err := m.SetDriver(link.Driver)
 		if err != nil {
 			return err
 		}
@@ -605,13 +607,24 @@ func (m *linkMechanismManager) CreateLink() error {
 		m.lock.RLock()
 		defer m.lock.RUnlock()
 
+		// Fire create pre-commit event
 		for _, port := range link.Ports {
-			if err = alter(lldriver, port); err != nil {
+			if err = alter(port); err != nil {
+				log.ErrorLog("link/CREATE_LINK",
+					"Link layer create pre-commit failed: ", err)
 				return err
 			}
 		}
 
-		return nil
+		// Fire create-post-commit event
+		err = m.do(func(llmech LinkMechanism) error {
+			return llmech.CreateLinkPostCommit()
+		})
+
+		log.ErrorLog("link/CREATE_LINK",
+			"Link layer create post-commit failed: ", err)
+
+		return err
 	})
 }
 
@@ -625,18 +638,14 @@ func (m *linkMechanismManager) UpdateLink(context *LinkManagerContext) (err erro
 		)
 	}
 
-	pre := func(lldriver LinkDriver, port LinkPort) error {
-		addr, err := lldriver.ParseAddr(port.Addr)
+	pre := func(port LinkPort) error {
+		linkContext, err := m.linkContext(port)
 		if err != nil {
-			log.ErrorLog("link/UPDATE_LINK_PRECOMMIT",
-				"Failed to parse link layer address: ", err)
 			return err
 		}
 
-		err = m.do(LinkMechanism.DeleteLink, &LinkContext{
-			Addr:   addr,
-			Port:   port.Port,
-			Driver: lldriver,
+		err = m.do(func(llmech LinkMechanism) error {
+			return llmech.UpdateLinkPreCommit(linkContext)
 		})
 
 		if err != nil {
@@ -647,24 +656,14 @@ func (m *linkMechanismManager) UpdateLink(context *LinkManagerContext) (err erro
 		return err
 	}
 
-	post := func(lldriver LinkDriver, port LinkPort) error {
-		addr, err := lldriver.ParseAddr(port.Addr)
+	post := func(port LinkPort) error {
+		linkContext, err := m.linkContext(port)
 		if err != nil {
-			log.ErrorLog("link/UPDATE_LINK_POSTCOMMIT",
-				"Failed to parse link layer address: ", err)
 			return err
 		}
 
-		if err = lldriver.UpdateAddr(port.Port, addr); err != nil {
-			log.ErrorLog("link/UPDATE_LINK_POSTCOMMIT",
-				"Failed to update port link layer address: ", err)
-			return err
-		}
-
-		err = m.do(LinkMechanism.UpdateLink, &LinkContext{
-			Addr:   addr,
-			Port:   port.Port,
-			Driver: lldriver,
+		err = m.do(func(llmech LinkMechanism) error {
+			return llmech.UpdateLinkPostCommit(linkContext)
 		})
 
 		if err != nil {
@@ -679,7 +678,7 @@ func (m *linkMechanismManager) UpdateLink(context *LinkManagerContext) (err erro
 	defer m.lock.RUnlock()
 
 	return update(func() error {
-		lldriver, err := m.Driver()
+		_, err := m.Driver()
 		if err != nil && len(link.Ports) != 0 {
 			log.ErrorLog("link/UPDATE_LINK",
 				"Driver not found, but ports need to be updated")
@@ -695,14 +694,16 @@ func (m *linkMechanismManager) UpdateLink(context *LinkManagerContext) (err erro
 				continue
 			}
 
-			// Precommit changes
-			if err := pre(lldriver, port); err != nil {
+			// Update pre-commit
+			if err := pre(port); err != nil {
+				log.ErrorLog("link/UPDATE_LINK",
+					"Link layer delete pre-commit failed: ", err)
 				return err
 			}
 		}
 
 		// Set new link layer driver
-		lldriver, err = m.SetDriver(context.Driver)
+		err = m.SetDriver(context.Driver)
 		if err != nil {
 			return err
 		}
@@ -711,8 +712,10 @@ func (m *linkMechanismManager) UpdateLink(context *LinkManagerContext) (err erro
 		link.Driver = context.Driver
 
 		for _, port := range context.Ports {
-			// Postcommit changes
-			if err := post(lldriver, port); err != nil {
+			// Update  post-commit
+			if err := post(port); err != nil {
+				log.ErrorLog("link/UPDATE_LINK",
+					"Link layer update pre-commit failed: ", err)
 				return err
 			}
 
@@ -746,23 +749,24 @@ func (m *linkMechanismManager) DeleteLink(context *LinkManagerContext) (err erro
 		defer lldriver.DeleteAddr(port.Port)
 
 		// Forward event to activated mechanisms
-		err = m.do(LinkMechanism.DeleteLink, &LinkContext{
-			Addr:   addr,
-			Port:   port.Port,
-			Driver: lldriver,
+		err = m.do(func(llmech LinkMechanism) error {
+			return llmech.DeleteLinkPreCommit(&LinkContext{
+				Addr:   addr,
+				Port:   port.Port,
+				Driver: lldriver,
+			})
 		})
 
 		if err != nil {
 			log.ErrorLog("link/DELETE_LINK",
 				"Failed to delete link configuration: ", err)
-			return err
 		}
 
-		// Update link layer port configuration.
-		link.DelPort(port)
-
-		return nil
+		return err
 	}
+
+	m.lock.RLock()
+	defer m.lock.RUnlock()
 
 	return update(func() error {
 		lldriver, err := m.Driver()
@@ -770,13 +774,24 @@ func (m *linkMechanismManager) DeleteLink(context *LinkManagerContext) (err erro
 			return err
 		}
 
-		m.lock.RLock()
-		defer m.lock.RUnlock()
-
 		for _, port := range context.Ports {
 			if err := alter(lldriver, port); err != nil {
+				log.ErrorLog("link/DELETE_LINK",
+					"Link delete pre-commit failed: ", err)
 				return err
 			}
+
+			// Update link layer port configuration.
+			link.DelPort(port)
+		}
+
+		err = m.do(func(llmech LinkMechanism) error {
+			return llmech.DeleteLinkPostCommit()
+		})
+
+		if err != nil {
+			log.ErrorLog("link/DELETE_LINK",
+				"Link delete post-commit failed: ", err)
 		}
 
 		return nil

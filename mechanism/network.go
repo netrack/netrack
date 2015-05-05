@@ -698,15 +698,8 @@ func (m *networkMechanismManager) Driver() (NetworkDriver, error) {
 
 // Context returns network context of specified switch port.
 func (m *networkMechanismManager) Context() (*NetworkManagerContext, error) {
-	_, err := m.Driver()
-	if err != nil {
-		log.ErrorLog("network/CONTEXT",
-			"Network layer driver is not initialized")
-		return nil, err
-	}
-
 	context := new(NetworkManagerContext)
-	err = m.BaseMechanismManager.Context(NetworkModel, context)
+	err := m.BaseMechanismManager.Context(NetworkModel, context)
 	if err != nil {
 		log.ErrorLog("network/CONTEXT",
 			"Failed to retrieve persisted configuration: ", err)

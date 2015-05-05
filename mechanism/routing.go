@@ -303,6 +303,9 @@ func (m *routingMechanismManager) UpdateNetworkPostCommit(context *NetworkContex
 	log.DebugLog("routing/UPDATE_NETWORK_POSTCOMMIT",
 		"Got update network postcommit request")
 
+	// Persist network layer driver
+	m.SetNetworkDriver(context.NetworkDriver)
+
 	err := m.UpdateRoutes(&RoutingManagerContext{
 		Datapath: m.Datapath, Routes: []*Route{{
 			Type:    string(ConnectedRoute),
@@ -383,15 +386,8 @@ func (m *routingMechanismManager) do(fn routeMechanismFunc, context *RoutingCont
 }
 
 func (m *routingMechanismManager) Context() (*RoutingManagerContext, error) {
-	_, err := m.NetworkDriver()
-	if err != nil {
-		log.ErrorLog("routing/CONTEXT",
-			"Network layer driver is not intialized: ", err)
-		return nil, err
-	}
-
 	context := new(RoutingManagerContext)
-	err = m.BaseMechanismManager.Context(RouteModel, context)
+	err := m.BaseMechanismManager.Context(RouteModel, context)
 	if err != nil {
 		log.ErrorLog("routing/CONTEXT",
 			"Failed to retrieve persisted configuration: ", err)

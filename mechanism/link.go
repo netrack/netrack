@@ -521,12 +521,6 @@ func (m *linkMechanismManager) Driver() (LinkDriver, error) {
 
 // Context returns link context of specified switch port.
 func (m *linkMechanismManager) Context() (*LinkManagerContext, error) {
-	if _, err := m.Driver(); err != nil {
-		log.ErrorLog("link/CONTEXT",
-			"Link layer driver is not initialized")
-		return nil, err
-	}
-
 	context := new(LinkManagerContext)
 	err := m.BaseMechanismManager.Context(LinkModel, context)
 	if err != nil {

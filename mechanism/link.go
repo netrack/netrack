@@ -728,12 +728,12 @@ func (m *linkMechanismManager) UpdateLink(context *LinkManagerContext) (err erro
 }
 
 // DeleteLink calls corresponding method for activated mechanisms.
-func (m *linkMechanismManager) DeleteLink(context *LinkManagerContext) (err error) {
+func (m *linkMechanismManager) DeleteLink(context *LinkManagerContext) error {
 	link := new(LinkManagerContext)
 
 	lldriver, err := m.Driver()
 	if err != nil {
-		return err
+		return nil
 	}
 
 	update := func(fn func() error) error {
@@ -743,11 +743,13 @@ func (m *linkMechanismManager) DeleteLink(context *LinkManagerContext) (err erro
 	}
 
 	alter := func(port LinkPort) error {
+		// Attempting to delete link layer address from
+		// uncofigured port is okay, so skip such port.
 		addr, err := lldriver.Addr(port.Port)
 		if err != nil {
 			log.ErrorLog("link/DELETE_LINK",
 				"Link layer address is not assigned to port: ", err)
-			return err
+			return nil
 		}
 
 		// Remove association from the driver

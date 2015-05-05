@@ -982,14 +982,13 @@ func (m *networkMechanismManager) DeleteNetwork(context *NetworkManagerContext) 
 			return err
 		}
 
-		// Since, DELETE request does not necessary contains
-		// network layer address to delete, first, request
-		// driver for port configuration.
+		// If there is no network layer address assigned to port,
+		// there is nothing to do then.
 		nladdr, err := nldriver.Addr(port.Port)
 		if err != nil {
 			log.ErrorLog("network/DELETE_NETWORK",
 				"Network layer address is not assigned to port: ", err)
-			return err
+			return nil
 		}
 
 		// Forward event to activated mechanisms.

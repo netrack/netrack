@@ -58,8 +58,16 @@ func (m *ICMPMechanism) Activate() {
 	m.cookies.Baker = ofputil.PacketInBaker()
 }
 
-func (m *ICMPMechanism) UpdateNetwork(context *mech.NetworkContext) error {
-	log.DebugLog("icmp/UPDATE_NETWORK",
+func (m *ICMPMechanism) CreateNetworkPreCommit(context *mech.NetworkContext) error {
+	return m.UpdateNetworkPostCommit(context)
+}
+
+func (m *ICMPMechanism) UpdateNetworkPreCommit(context *mech.NetworkContext) error {
+	return m.DeleteNetworkPreCommit(context)
+}
+
+func (m *ICMPMechanism) UpdateNetworkPostCommit(context *mech.NetworkContext) error {
+	log.DebugLog("icmp/UPDATE_NETWORK_POSTCOMMIT",
 		"Got update network request")
 
 	// Send ICMP message to the controller
@@ -85,27 +93,30 @@ func (m *ICMPMechanism) UpdateNetwork(context *mech.NetworkContext) error {
 
 	r, err := of.NewRequest(of.T_FLOW_MOD, of.NewReader(&flowMod))
 	if err != nil {
-		log.ErrorLog("icmp/UPDATE_NETWORK",
+		log.ErrorLog("icmp/UPDATE_NETWORK_POSTCOMMIT",
 			"Failed to create a new ofp_flow_mod request: ", err)
 		return err
 	}
 
 	if err = of.Send(m.C.Switch.Conn(), r); err != nil {
-		log.ErrorLogf("icmp/UPDATE_NETWORK",
+		log.ErrorLogf("icmp/UPDATE_NETWORK_POSTCOMMIT",
 			"Failed to send request:", err)
 	}
 
 	return err
 }
 
-func (m *ICMPMechanism) DeleteNetwork(context *mech.NetworkContext) error {
+func (m *ICMPMechanism) DeleteNetworkPreCommit(context *mech.NetworkContext) error {
+	log.DebugLog("icmp/DELETE_NETWORK_PRECOMMIT",
+		"Got network delete precommit request")
+
 	// Flush ICMP flow for specified address (if any).
 	err := of.Send(m.C.Switch.Conn(), ofputil.FlowFlush(
 		0, EchoRequest(context.NetworkAddr.Bytes()),
 	))
 
 	if err != nil {
-		log.ErrorLog("icmp/DELETE_NETWORK",
+		log.ErrorLog("icmp/DELETE_NETWORK_PRECOMMIT",
 			"Failed to send requests: ", err)
 	}
 
@@ -163,7 +174,7 @@ func (m *ICMPMechanism) icmpEchoHandler(rw of.ResponseWriter, r *of.Request) {
 		return
 	}
 
-	log.DebugLog("icmp/ECHO_REQUEST_HANDLER",
+	log.DebugLogf("icmp/ECHO_REQUEST_HANDLER",
 		"Got ICMP echo-request: %s -> %s", pdu3.SrcAddr, pdu3.DstAddr)
 
 	// Get port number from match fields.

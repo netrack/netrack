@@ -44,7 +44,7 @@ func (m *IPv4Routing) Enable(c *mech.MechanismContext) {
 	m.C.Mux.HandleFunc(of.T_PACKET_IN, m.packetInHandler)
 	m.C.Mux.HandleFunc(of.T_FLOW_REMOVED, m.flowRemovedHandler)
 
-	log.InfoLog("routing/ENABLE_HOOK",
+	log.InfoLog("ipv4_routing/ENABLE_HOOK",
 		"IPv4 routing enabled")
 }
 
@@ -57,14 +57,14 @@ func (m *IPv4Routing) Activate() {
 	// Allocate table for handling ipv4 protocol.
 	tableNo, err := m.C.Switch.AllocateTable()
 	if err != nil {
-		log.ErrorLog("routing/ACTIVATE_HOOK",
+		log.ErrorLog("ipv4_routing/ACTIVATE_HOOK",
 			"Failed to allocate a new table: ", err)
 		return
 	}
 
 	m.tableNo = tableNo
 
-	log.DebugLog("routing/ACTIVATE_HOOK",
+	log.DebugLog("ipv4_routing/ACTIVATE_HOOK",
 		"Allocated table: ", tableNo)
 
 	// Match packets of IPv4 protocol.
@@ -85,7 +85,7 @@ func (m *IPv4Routing) Activate() {
 	}))
 
 	if err != nil {
-		log.ErrorLog("routing/ACTIVATE_HOOK",
+		log.ErrorLog("ipv4_routing/ACTIVATE_HOOK",
 			"Failed to create ofp_flow_mod request: ", err)
 
 		return
@@ -101,12 +101,15 @@ func (m *IPv4Routing) Activate() {
 	)
 
 	if err != nil {
-		log.ErrorLog("routing/ACTIVATE_HOOK",
+		log.ErrorLog("ipv4_routing/ACTIVATE_HOOK",
 			"Failed to send requests: ", err)
 	}
 }
 
 func (m *IPv4Routing) UpdateRoute(context *mech.RoutingContext) error {
+	log.DebugLog("ipv4_routing/UPDATE_ROUTE",
+		"Got routing update route request")
+
 	// Match IPv4 packets of specified route.
 	match := ofp.Match{ofp.MT_OXM, []ofp.OXM{
 		ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_ETH_TYPE, of.Bytes(iana.ETHT_IPV4), nil},
@@ -144,13 +147,13 @@ func (m *IPv4Routing) UpdateRoute(context *mech.RoutingContext) error {
 
 	r, err := of.NewRequest(of.T_FLOW_MOD, of.NewReader(&flowMod))
 	if err != nil {
-		log.ErrorLog("routing/UPDATE_ROUTES",
+		log.ErrorLog("ipv4_routing/UPDATE_ROUTE",
 			"Failed to create new ofp_flow_mod request: ", err)
 		return err
 	}
 
 	if err = of.Send(m.C.Switch.Conn(), r); err != nil {
-		log.ErrorLog("routing/UPDATE_ROUTES",
+		log.ErrorLog("ipv4_routing/UPDATE_ROUTE",
 			"Failed to send ofp_flow_mode request: ", err)
 	}
 
@@ -158,7 +161,7 @@ func (m *IPv4Routing) UpdateRoute(context *mech.RoutingContext) error {
 }
 
 func (m *IPv4Routing) DeleteRoute(context *mech.RoutingContext) error {
-	log.DebugLog("routing/DELETE_ROUTE",
+	log.DebugLog("ipv4_routing/DELETE_ROUTE",
 		"Got delete route request")
 
 	// Update routing table with new address
@@ -169,7 +172,7 @@ func (m *IPv4Routing) DeleteRoute(context *mech.RoutingContext) error {
 	})
 
 	if !evicted {
-		log.ErrorLog("routing/DELETE_ROUTE",
+		log.ErrorLog("ipv4_routing/DELETE_ROUTE",
 			"Failed to delete specified route: ", context.Network)
 		return nil
 	}
@@ -185,7 +188,7 @@ func (m *IPv4Routing) DeleteRoute(context *mech.RoutingContext) error {
 	)
 
 	if err != nil {
-		log.ErrorLog("routing/DELETE_ROUTES",
+		log.ErrorLog("ipv4_routing/DELETE_ROUTES",
 			"Failed to send requests: ", err)
 	}
 
@@ -197,6 +200,9 @@ func (m *IPv4Routing) packetInHandler(rw of.ResponseWriter, r *of.Request) {
 }
 
 func (m *IPv4Routing) flowRemovedHandler(rw of.ResponseWriter, r *of.Request) {
+	log.DebugLog("ipv4_routing/FLOW_REMOVED_HANDLER",
+		"Got ofp_flow_removed message")
+
 	var flowRemoved ofp.FlowRemoved
 
 	_, err := of.ReadAllFrom(r.Body, &flowRemoved)
@@ -214,14 +220,14 @@ func (m *IPv4Routing) ipPacketHandler(rw of.ResponseWriter, r *of.Request) {
 
 	lldriver, err := mech.LinkDrv(m.C)
 	if err != nil {
-		log.InfoLog("routing/IP_PACKET_HANDLER_LLDRIVER",
+		log.InfoLog("ipv4_routing/IP_PACKET_HANDLER_LLDRIVER",
 			"Link layer driver is not initialized: ", err)
 		return
 	}
 
 	nldriver, err := mech.NetworkDrv(m.C)
 	if err != nil {
-		log.InfoLog("routing/IP_PACKET_HANDLER",
+		log.InfoLog("ipv4_routing/IP_PACKET_HANDLER",
 			"Network layer driver is not intialized: ", err)
 		return
 	}
@@ -230,17 +236,17 @@ func (m *IPv4Routing) ipPacketHandler(rw of.ResponseWriter, r *of.Request) {
 	nlreader := mech.MakeNetworkReaderFrom(nldriver, &pdu3)
 
 	if _, err = of.ReadAllFrom(r.Body, &packet, llreader, nlreader); err != nil {
-		log.ErrorLog("routing/IP_PACKET_HANDLER",
+		log.ErrorLog("ipv4_routing/IP_PACKET_HANDLER",
 			"Failed to read packet: ", err)
 		return
 	}
 
-	log.DebugLog("routing/IP_PACKET_HANDLER",
+	log.DebugLog("ipv4_routing/IP_PACKET_HANDLER",
 		"Got ip packet to: ", pdu3.DstAddr)
 
 	route, ok := m.routeTable.Lookup(pdu3.DstAddr)
 	if !ok {
-		log.DebugLogf("routing/IP_PACKET_HANDLER",
+		log.DebugLogf("ipv4_routing/IP_PACKET_HANDLER",
 			"Route to %s not found", pdu3.DstAddr)
 		return
 	}
@@ -248,14 +254,14 @@ func (m *IPv4Routing) ipPacketHandler(rw of.ResponseWriter, r *of.Request) {
 	// Search for link layer address of egress port.
 	srcAddr, err := lldriver.Addr(route.Port)
 	if err != nil {
-		log.ErrorLog("routing/PACKET_IN_HANDLER",
+		log.ErrorLog("ipv4_routing/PACKET_IN_HANDLER",
 			"Failed to retrieve port link layer address: ", err)
 		return
 	}
 
 	var network mech.NetworkMechanismManager
 	if err = m.C.Managers.Obtain(&network); err != nil {
-		log.ErrorLog("routing/PACKET_IN_HANDLER",
+		log.ErrorLog("ipv4_routing/PACKET_IN_HANDLER",
 			"Failed to obtain network layer manager: ", err)
 		return
 	}
@@ -263,7 +269,7 @@ func (m *IPv4Routing) ipPacketHandler(rw of.ResponseWriter, r *of.Request) {
 	var arpMech ARPMechanism
 	err = network.Mechanism(ARPMechanismName, &arpMech)
 	if err != nil {
-		log.ErrorLog("routing/IP_PACKET_HANDLER",
+		log.ErrorLog("ipv4_routing/IP_PACKET_HANDLER",
 			"ARP network mechanism is not found: ", err)
 		return
 	}
@@ -275,12 +281,12 @@ func (m *IPv4Routing) ipPacketHandler(rw of.ResponseWriter, r *of.Request) {
 
 	dstAddr, err := arpMech.Lookup(netwAddr, route.Port)
 	if err != nil {
-		log.ErrorLog("routing/IP_PACKET_HANDLER",
+		log.ErrorLog("ipv4_routing/IP_PACKET_HANDLER",
 			"Failed to resolve link layer address: ", err)
 		return
 	}
 
-	log.DebugLog("routing/IP_PACKET_HANDLER",
+	log.DebugLog("ipv4_routing/IP_PACKET_HANDLER",
 		"Resolved link layer address: ", dstAddr)
 
 	// Create permanent rule for discovered address.
@@ -315,7 +321,7 @@ func (m *IPv4Routing) ipPacketHandler(rw of.ResponseWriter, r *of.Request) {
 
 	_, err = of.WriteAllTo(rw, &flowMod)
 	if err != nil {
-		log.ErrorLog("routing/IP_PACKET_HANDLER",
+		log.ErrorLog("ipv4_routing/IP_PACKET_HANDLER",
 			"Failed to write response: ", err)
 		return
 	}
@@ -323,7 +329,7 @@ func (m *IPv4Routing) ipPacketHandler(rw of.ResponseWriter, r *of.Request) {
 	rw.Header().Set(of.TypeHeaderKey, of.T_FLOW_MOD)
 	rw.Header().Set(of.VersionHeaderKey, ofp.VERSION)
 	if err = rw.WriteHeader(); err != nil {
-		log.ErrorLog("routing/IP_PACKET_HANDLER",
+		log.ErrorLog("ipv4_routing/IP_PACKET_HANDLER",
 			"Failed to send ICMP-REPLY response: ", err)
 	}
 }

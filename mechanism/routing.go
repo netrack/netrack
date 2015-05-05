@@ -263,13 +263,17 @@ func (m *routingMechanismManager) CreateNetworkPreCommit(context *NetworkContext
 	return nil
 }
 
-func (m *routingMechanismManager) CreateNetworkPostCommit(context *NetworkContext) error {
+func (m *routingMechanismManager) CreateNetworkPostCommit() error {
 	log.DebugLog("routing/CREATE_NETWORK_POSTCOMMIT",
 		"Got create postcommit request")
 
-	// Persist network layer driver
-	m.SetNetworkDriver(context.NetworkDriver)
-	return nil
+	err := m.CreateRoutes()
+	if err != nil {
+		log.ErrorLog("routing/CREATE_NETWORK_POSTCOMMIT",
+			"Failed to restore routing configuration: ", err)
+	}
+
+	return err
 }
 
 func (m *routingMechanismManager) UpdateNetworkPreCommit(context *NetworkContext) error {
@@ -278,10 +282,24 @@ func (m *routingMechanismManager) UpdateNetworkPreCommit(context *NetworkContext
 
 	// Persist network layer driver
 	m.SetNetworkDriver(context.NetworkDriver)
+
+	err := m.DeleteRoutes(&RoutingManagerContext{
+		Datapath: m.Datapath, Routes: []*Route{{
+			Type:    string(ConnectedRoute),
+			Network: context.NetworkAddr.String(),
+			Port:    context.Port,
+		}},
+	})
+
+	if err != nil {
+		log.ErrorLog("routing/UPDATE_NETWORK_PRECOMMIT",
+			"Failed update routing configuration: ", err)
+	}
+
 	return err
 }
 
-func (m *routingMechanismManager) UpdateNetworkPostCommit() error {
+func (m *routingMechanismManager) UpdateNetworkPostCommit(context *NetworkContext) error {
 	log.DebugLog("routing/UPDATE_NETWORK_POSTCOMMIT",
 		"Got update network postcommit request")
 
@@ -383,43 +401,41 @@ func (m *routingMechanismManager) Context() (*RoutingManagerContext, error) {
 }
 
 func (m *routingMechanismManager) CreateRoutes() error {
-	// routing := new(RoutingManagerContext)
+	routing := new(RoutingManagerContext)
 
-	// create := func(fn func() error) error {
-	// 	return m.BaseMechanismManager.Create(
-	// 		RouteModel, routing, fn,
-	// 	)
-	// }
+	create := func(fn func() error) error {
+		return m.BaseMechanismManager.Create(
+			RouteModel, routing, fn,
+		)
+	}
 
-	// m.lock.RLock()
-	// defer m.lock.RUnlock()
+	alter := func(route *Route) error {
+		routingContext, err := m.routingContext(route)
+		if err != nil {
+			return err
+		}
 
-	// alter := func(route *Route) error {
-	// 	routingContext, err := m.routingContext(route)
-	// 	if err != nil {
-	// 		return err
-	// 	}
+		err = m.do(RoutingMechanism.UpdateRoute, routingContext)
+		if err != nil {
+			log.ErrorLog("routing/CREATE_ROUTES",
+				"Failed to create routing configuration: ", err)
+		}
 
-	// 	err = m.do(RoutingMechanism.UpdateRoute, routingContext)
-	// 	if err != nil {
-	// 		log.ErrorLog("routing/CREATE_ROUTES",
-	// 			"Failed to create routing configuration: ", err)
-	// 	}
+		return err
+	}
 
-	// 	return err
-	// }
+	m.lock.RLock()
+	defer m.lock.RUnlock()
 
-	// return create(func() error {
-	// 	for _, route := range context.Routes {
-	// 		if err := alter(route); err != nil {
-	// 			return err
-	// 		}
-	// 	}
+	return create(func() error {
+		for _, route := range routing.Routes {
+			if err := alter(route); err != nil {
+				return err
+			}
+		}
 
-	// 	return nil
-	// })
-
-	return nil
+		return nil
+	})
 }
 
 func (m *routingMechanismManager) routingContext(route *Route) (*RoutingContext, error) {

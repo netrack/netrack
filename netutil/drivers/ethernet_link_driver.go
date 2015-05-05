@@ -1,10 +1,12 @@
 package drivers
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"net"
 	"strings"
+	"sync"
 
 	"github.com/netrack/net/iana"
 	"github.com/netrack/net/l2"
@@ -17,6 +19,11 @@ func init() {
 	constructor := mech.LinkDriverConstructorFunc(NewEthernetLinkDriver)
 	mech.RegisterLinkDriver(EthernetDriverName, constructor)
 }
+
+var (
+	EthernetAddrErr = errors.New(
+		"ieee-802.3: there is no link layer address associated with this port")
+)
 
 // Hardware address
 type EthernetAddr []byte
@@ -41,6 +48,7 @@ type EthernetLinkDriver struct {
 
 	// Mapping of link addresses to switch ports.
 	addrs map[uint32]mech.LinkAddr
+	lock  sync.RWMutex
 }
 
 func NewEthernetLinkDriver() mech.LinkDriver {
@@ -58,6 +66,13 @@ func (d *EthernetLinkDriver) CreateAddr(addr []byte) mech.LinkAddr {
 }
 
 func (d *EthernetLinkDriver) DeleteAddr(port uint32) error {
+	d.lock.Lock()
+	defer d.lock.Unlock()
+
+	if _, ok := d.addrs[port]; !ok {
+		return EthernetAddrErr
+	}
+
 	delete(d.addrs, port)
 	return nil
 }
@@ -65,23 +80,29 @@ func (d *EthernetLinkDriver) DeleteAddr(port uint32) error {
 func (d *EthernetLinkDriver) ParseAddr(s string) (mech.LinkAddr, error) {
 	hwaddr, err := net.ParseMAC(s)
 	if err != nil {
+		return nil, err
 	}
 
 	return EthernetAddr(hwaddr), nil
 }
 
 func (d *EthernetLinkDriver) UpdateAddr(port uint32, addr mech.LinkAddr) error {
+	d.lock.Lock()
+	defer d.lock.Unlock()
+
 	d.addrs[port] = addr
 	return nil
 }
 
 func (d *EthernetLinkDriver) Addr(port uint32) (mech.LinkAddr, error) {
+	d.lock.RLock()
+	defer d.lock.RUnlock()
+
 	if addr, ok := d.addrs[port]; ok {
 		return addr, nil
 	}
 
-	text := "There is no link address associated with port: '%d'"
-	return nil, fmt.Errorf(text, port)
+	return nil, EthernetAddrErr
 }
 
 func (d *EthernetLinkDriver) ReadFrame(r io.Reader) (*mech.LinkFrame, error) {

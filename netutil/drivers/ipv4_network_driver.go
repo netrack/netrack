@@ -1,9 +1,11 @@
 package drivers
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"net"
+	"sync"
 
 	"github.com/netrack/net/iana"
 	"github.com/netrack/net/l3"
@@ -13,6 +15,11 @@ import (
 const IPv4DriverName = "ipv4"
 
 var IPv4HostMask = net.IPMask{255, 255, 255, 255}
+
+var (
+	IPv4AddrErr = errors.New(
+		"ipv4: there is no network layer address associated with this port")
+)
 
 func init() {
 	constructor := mech.NetworkDriverConstructorFunc(NewIPv4Driver)
@@ -47,6 +54,7 @@ type IPv4Driver struct {
 
 	// Mapping of network addresses to switch ports.
 	addrs map[uint32]mech.NetworkAddr
+	lock  sync.RWMutex
 }
 
 func NewIPv4Driver() mech.NetworkDriver {
@@ -81,16 +89,33 @@ func (d *IPv4Driver) CreateAddr(addr []byte, mask []byte) mech.NetworkAddr {
 }
 
 func (d *IPv4Driver) Addr(port uint32) (mech.NetworkAddr, error) {
+	d.lock.RLock()
+	defer d.lock.RUnlock()
+
 	if addr, ok := d.addrs[port]; ok {
 		return addr, nil
 	}
 
-	text := "There is no network address associated with port: '%d'"
-	return nil, fmt.Errorf(text, port)
+	return nil, IPv4AddrErr
 }
 
 func (d *IPv4Driver) UpdateAddr(port uint32, addr mech.NetworkAddr) error {
+	d.lock.Lock()
+	defer d.lock.Unlock()
+
 	d.addrs[port] = addr
+	return nil
+}
+
+func (d *IPv4Driver) DeleteAddr(port uint32) error {
+	d.lock.Lock()
+	defer d.lock.Unlock()
+
+	if _, ok := d.addrs[port]; !ok {
+		return IPv4AddrErr
+	}
+
+	delete(d.addrs, port)
 	return nil
 }
 

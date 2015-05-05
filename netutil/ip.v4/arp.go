@@ -53,6 +53,9 @@ func (m *ARPMechanism) createRequest(nladdr mech.NetworkAddr) <-chan bool {
 	m.lock.Lock()
 	defer m.lock.Unlock()
 
+	log.DebugLog("arp/CREATE_REQUEST",
+		"Create request for: ", nladdr)
+
 	waitCh := make(chan bool)
 	channels := m.requests[nladdr.String()]
 
@@ -68,8 +71,6 @@ func (m *ARPMechanism) releaseRequest(nladdr mech.NetworkAddr) {
 
 	log.DebugLog("arp/RELEASE_REQUEST",
 		"Release requests for: ", nladdr)
-
-	log.DebugLog("arp/RELEASE_REQUEST", m.requests)
 
 	// Broadcast response to waiters
 	for _, channel := range m.requests[nladdr.String()] {
@@ -163,8 +164,16 @@ func (m *ARPMechanism) Disable() {
 	m.BaseMechanism.Disable()
 }
 
-func (m *ARPMechanism) UpdateNetwork(context *mech.NetworkContext) error {
-	log.DebugLog("arp/UPDATE_NETWORK",
+func (m *ARPMechanism) CreateNetworkPreCommit(context *mech.NetworkContext) error {
+	return m.UpdateNetworkPostCommit(context)
+}
+
+func (m *ARPMechanism) UpdateNetworkPreCommit(context *mech.NetworkContext) error {
+	return m.DeleteNetworkPreCommit(context)
+}
+
+func (m *ARPMechanism) UpdateNetworkPostCommit(context *mech.NetworkContext) error {
+	log.DebugLog("arp/UPDATE_NETWORK_POSTCOMMIT",
 		"Got update network request")
 
 	// Match broadcast ARP requests to resolve updated address.
@@ -205,8 +214,8 @@ func (m *ARPMechanism) UpdateNetwork(context *mech.NetworkContext) error {
 	// Insert flow into ARP-allocated flow table.
 	arpRequest, err := of.NewRequest(of.T_FLOW_MOD, of.NewReader(&flowMod))
 	if err != nil {
-		log.ErrorLog("arp/UPDATE_NETWORK_ARP_REQUEST",
-			"Failed to create ofp_flow_mod request: ", err)
+		log.ErrorLog("arp/UPDATE_NETWORK_POSTCOMMIT",
+			"Failed to send ARP request message: ", err)
 		return err
 	}
 
@@ -245,8 +254,8 @@ func (m *ARPMechanism) UpdateNetwork(context *mech.NetworkContext) error {
 	// Insert flow into ARP-allocated flow table.
 	arpReply, err := of.NewRequest(of.T_FLOW_MOD, of.NewReader(&flowMod))
 	if err != nil {
-		log.ErrorLog("arp/UPDATE_NETWORK_ARP_REPLY",
-			"Failed to create ofp_flow_mod request: ", err)
+		log.ErrorLog("arp/UPDATE_NETWORK_POSTCOMMIT",
+			"Failed to send ARP reply message: ", err)
 		return err
 	}
 
@@ -256,15 +265,15 @@ func (m *ARPMechanism) UpdateNetwork(context *mech.NetworkContext) error {
 	)
 
 	if err != nil {
-		log.ErrorLog("arp/UPDATE_NETWORK_SEND",
+		log.ErrorLog("arp/UPDATE_NETWORK_POSTCOMMIT",
 			"Failed to send requests: ", err)
 	}
 
 	return err
 }
 
-func (m *ARPMechanism) DeleteNetwork(context *mech.NetworkContext) error {
-	log.DebugLog("arp/DELETE_NETWORK",
+func (m *ARPMechanism) DeleteNetworkPreCommit(context *mech.NetworkContext) error {
+	log.DebugLog("arp/DELETE_NETWORK_PRECOMMIT",
 		"Got delete network request")
 
 	match := ofp.Match{ofp.MT_OXM, []ofp.OXM{
@@ -277,7 +286,7 @@ func (m *ARPMechanism) DeleteNetwork(context *mech.NetworkContext) error {
 	)
 
 	if err != nil {
-		log.ErrorLog("arp/DELETE_NETWORK",
+		log.ErrorLog("arp/DELETE_NETWORK_PRECOMMIT",
 			"Failed to remove installed ARP flows: ", err)
 	}
 
@@ -430,7 +439,7 @@ func resolveFuncWrapper(param rpc.Param, result rpc.Result) (err error) {
 	var port uint32
 
 	if err = param.Obtain(&arpMech, &nladdr, &port); err != nil {
-		log.ErrorLog("arp/RESOLVE_FUNC_WRAPPER",
+		log.ErrorLog("arp/ARP_LOOKUP_WRAPPER",
 			"Failed to obtain arguments: ", err)
 		return err
 	}
@@ -444,6 +453,9 @@ func resolveFuncWrapper(param rpc.Param, result rpc.Result) (err error) {
 }
 
 func (m *ARPMechanism) Lookup(addr mech.NetworkAddr, port uint32) (mech.LinkAddr, error) {
+	log.DebugLog("arp/ARP_LOOKUP",
+		"Got requests to lookup address: ", addr)
+
 	if neigh, ok := m.neighTable.Lookup(addr); ok {
 		// Success, table hit.
 		return neigh.LinkAddr, nil
@@ -462,7 +474,7 @@ func (m *ARPMechanism) Lookup(addr mech.NetworkAddr, port uint32) (mech.LinkAddr
 	// Get link layer address associated with egress port.
 	lladdr, err := lldriver.Addr(port)
 	if err != nil {
-		log.ErrorLogf("arp/RESOLVE_FUNC",
+		log.ErrorLogf("arp/ARP_LOOKUP",
 			"Failed to resolve port '%d' hardware address: '%s'", port, err)
 		return nil, err
 	}
@@ -470,7 +482,7 @@ func (m *ARPMechanism) Lookup(addr mech.NetworkAddr, port uint32) (mech.LinkAddr
 	// Get network layer address associated with egress port.
 	nladdr, err := nldriver.Addr(port)
 	if err != nil {
-		log.ErrorLogf("arp/RESOLVE_FUNC",
+		log.ErrorLogf("arp/ARP_LOOKUP",
 			"Failed to resolve port '%d' network address: '%s'", port, err)
 		return nil, err
 	}
@@ -499,7 +511,7 @@ func (m *ARPMechanism) Lookup(addr mech.NetworkAddr, port uint32) (mech.LinkAddr
 
 	r, err := of.NewRequest(of.T_PACKET_OUT, of.NewReader(&packetOut, llwriter, &arp))
 	if err != nil {
-		log.ErrorLog("arp/RESOLVE_FUNC",
+		log.ErrorLog("arp/ARP_LOOKUP",
 			"Failed to create a new ofp_packet_out request: ", err)
 		return nil, err
 	}
@@ -508,13 +520,13 @@ func (m *ARPMechanism) Lookup(addr mech.NetworkAddr, port uint32) (mech.LinkAddr
 	wait := m.createRequest(addr)
 
 	if err = m.C.Switch.Conn().Send(r); err != nil {
-		log.ErrorLog("arp/RESOLVE_FUNC",
+		log.ErrorLog("arp/ARP_LOOKUP",
 			"Failed to send an ARP request: ", err)
 		return nil, err
 	}
 
 	if err = m.C.Switch.Conn().Flush(); err != nil {
-		log.ErrorLog("arp/RESOLVE_FUNC",
+		log.ErrorLog("arp/ARP_LOOKUP",
 			"Failed to flush data to connection: ", err)
 		return nil, err
 	}

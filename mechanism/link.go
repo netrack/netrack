@@ -223,19 +223,23 @@ func (d *BaseLinkDriver) Addr(uint32) (LinkAddr, error) {
 type LinkMechanism interface {
 	Mechanism
 
-	// CreateLink is called upon link creation
+	// CreateLinkPreCommit is called upon link creation
 	CreateLinkPreCommit(*LinkContext) error
 
+	// CreateLinkPostCommit called right before storing configuration
+	// to the data storage
 	CreateLinkPostCommit() error
 
 	// UpdateLink is called for all changes to link state.
 	UpdateLinkPreCommit(*LinkContext) error
 
+	// UpdateLinkPostCommit
 	UpdateLinkPostCommit(*LinkContext) error
 
 	// DeleteLink erases all allocated resources.
 	DeleteLinkPreCommit(*LinkContext) error
 
+	// DeleteLinkPostCommit
 	DeleteLinkPostCommit() error
 }
 
@@ -621,8 +625,10 @@ func (m *linkMechanismManager) CreateLink() error {
 			return llmech.CreateLinkPostCommit()
 		})
 
-		log.ErrorLog("link/CREATE_LINK",
-			"Link layer create post-commit failed: ", err)
+		if err != nil {
+			log.ErrorLog("link/CREATE_LINK",
+				"Link layer create post-commit failed: ", err)
+		}
 
 		return err
 	})
@@ -731,13 +737,18 @@ func (m *linkMechanismManager) UpdateLink(context *LinkManagerContext) (err erro
 func (m *linkMechanismManager) DeleteLink(context *LinkManagerContext) (err error) {
 	link := new(LinkManagerContext)
 
+	lldriver, err := m.Driver()
+	if err != nil {
+		return err
+	}
+
 	update := func(fn func() error) error {
 		return m.BaseMechanismManager.Update(
 			LinkModel, link, fn,
 		)
 	}
 
-	alter := func(lldriver LinkDriver, port LinkPort) error {
+	alter := func(port LinkPort) error {
 		addr, err := lldriver.Addr(port.Port)
 		if err != nil {
 			log.ErrorLog("link/DELETE_LINK",
@@ -769,13 +780,8 @@ func (m *linkMechanismManager) DeleteLink(context *LinkManagerContext) (err erro
 	defer m.lock.RUnlock()
 
 	return update(func() error {
-		lldriver, err := m.Driver()
-		if err != nil {
-			return err
-		}
-
 		for _, port := range context.Ports {
-			if err := alter(lldriver, port); err != nil {
+			if err := alter(port); err != nil {
 				log.ErrorLog("link/DELETE_LINK",
 					"Link delete pre-commit failed: ", err)
 				return err

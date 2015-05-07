@@ -25,13 +25,20 @@ type SwitchManager struct {
 	lock sync.RWMutex
 }
 
-// CreateSwitch searches available switch implementation
-// for requested version and initialize switch boot process.
-func (m *SwitchManager) CreateSwitch(conn of.OFPConn) error {
+func (m *SwitchManager) init() {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+
 	// Make lazy intialization
 	if m.entries == nil {
 		m.entries = make(map[string]*MechanismContext)
 	}
+}
+
+// CreateSwitch searches available switch implementation
+// for requested version and initialize switch boot process.
+func (m *SwitchManager) CreateSwitch(conn of.OFPConn) error {
+	m.init()
 
 	// Read ofp_hello message to get protocol version
 	r, err := conn.Receive()
@@ -111,6 +118,8 @@ func (m *SwitchManager) CreateSwitch(conn of.OFPConn) error {
 // SwitchContext returns switch context of managing switch,
 // ErrSwitchNotFound returned when switch is not managed by SwitchManager.
 func (m *SwitchManager) Context(dpid string) (*MechanismContext, error) {
+	m.init()
+
 	m.lock.RLock()
 	defer m.lock.RUnlock()
 

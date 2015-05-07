@@ -10,11 +10,9 @@ import (
 
 func TestJSONFormatter(t *testing.T) {
 	f := JSONFormatter{}
-
-	r, _ := http.NewRequest("PUT", "http://127.0.0.1/resource", nil)
 	rw := httptest.NewRecorder()
 
-	err := f.Write(rw, r, map[string]string{"status": "alive"})
+	err := f.Write(rw, map[string]string{"status": "alive"}, http.StatusOK)
 	if err != nil {
 		t.Fatal("Failed to write data in JSON format:", err)
 	}

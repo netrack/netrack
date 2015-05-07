@@ -8,6 +8,9 @@ import (
 	"github.com/netrack/netrack/config"
 	"github.com/netrack/netrack/controller"
 	"github.com/netrack/netrack/logging"
+
+	"net/http"
+	_ "net/http/pprof"
 )
 
 var (
@@ -54,6 +57,11 @@ func doStart() {
 		log.FatalLog("netrack/DO_START",
 			"Failed to load configuration file: ", err)
 	}
+
+	go func() {
+		log.DebugLogf("netrack/PPROF",
+			"Profiling error: ", http.ListenAndServe("localhost:6060", nil))
+	}()
 
 	c := controller.C{Config: config}
 	c.ListenAndServe()

@@ -24,7 +24,7 @@ func init() {
 		return NewNetworkMechanismManager()
 	})
 
-	RegisterLinkMechanism("inet", constructor)
+	RegisterLinkMechanism("networking", constructor)
 }
 
 var (
@@ -459,6 +459,14 @@ func NewNetworkMechanismManager() *networkMechanismManager {
 	return &networkMechanismManager{
 		drivers: NetworkDrivers(),
 	}
+}
+
+func (m *networkMechanismManager) Name() string {
+	return "networking"
+}
+
+func (m *networkMechanismManager) Description() string {
+	return "MISSING DESCRIPTION!"
 }
 
 func (m *networkMechanismManager) Enable(c *MechanismContext) {

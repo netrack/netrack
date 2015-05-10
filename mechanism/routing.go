@@ -203,6 +203,14 @@ func NewRoutingMechanismManager() *routingMechanismManager {
 	return &routingMechanismManager{}
 }
 
+func (m *routingMechanismManager) Name() string {
+	return "ipv4-routing"
+}
+
+func (m *routingMechanismManager) Description() string {
+	return "MISSING DESCRIPTION!"
+}
+
 func (m *routingMechanismManager) Enable(c *MechanismContext) {
 	m.BaseMechanismManager = BaseMechanismManager{
 		Datapath:   c.Switch.ID(),

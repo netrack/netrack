@@ -5,7 +5,7 @@ import (
 	"github.com/netrack/openflow"
 )
 
-type RIPMech struct {
+type RIPMechanism struct {
 	mech.BaseMechanismDriver
 }
 

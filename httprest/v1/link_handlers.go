@@ -54,10 +54,10 @@ func NewLinkHandler() mech.HTTPDriver {
 func (h *LinkHandler) Enable(c *mech.HTTPDriverContext) {
 	h.BaseHTTPDriver.Enable(c)
 
-	h.C.Mux.HandleFunc("GET", "/v1/datapaths/{dpid}/interfaces/links", h.indexHandler)
-	h.C.Mux.HandleFunc("GET", "/v1/datapaths/{dpid}/interfaces/{interface}/link", h.showHandler)
-	h.C.Mux.HandleFunc("PUT", "/v1/datapaths/{dpid}/interfaces/{interface}/link", h.createHandler)
-	h.C.Mux.HandleFunc("DELETE", "/v1/datapaths/{dpid}/interfaces/{interface}/link", h.destroyHandler)
+	h.C.Mux.HandleFunc("GET", "/v1/datapaths/{dpid}/link/interfaces", h.indexHandler)
+	h.C.Mux.HandleFunc("GET", "/v1/datapaths/{dpid}/link/interfaces/{interface}", h.showHandler)
+	h.C.Mux.HandleFunc("PUT", "/v1/datapaths/{dpid}/link/interfaces/{interface}", h.createHandler)
+	h.C.Mux.HandleFunc("DELETE", "/v1/datapaths/{dpid}/link/interfaces/{interface}", h.destroyHandler)
 
 	log.InfoLog("link_handlers/ENABLE_HOOK",
 		"Link layer handlers enabled")
@@ -150,6 +150,9 @@ func (h *LinkHandler) indexHandler(rw http.ResponseWriter, r *http.Request) {
 		linkModels = append(linkModels, models.Link{
 			Encapsulation: models.NullString(context.LinkContext.Driver),
 			Addr:          models.NullString(linkPort.Addr),
+			State:         models.NullString(switchPort.State),
+			Config:        models.NullString(switchPort.Config),
+			Features:      models.NullString(switchPort.Features),
 			InterfaceName: switchPort.Name,
 			Interface:     switchPort.Number,
 		})
@@ -216,6 +219,9 @@ func (h *LinkHandler) showHandler(rw http.ResponseWriter, r *http.Request) {
 	body := models.Link{
 		Encapsulation: models.NullString(linkContext.Driver),
 		Addr:          models.NullString(linkPort.Addr),
+		State:         models.NullString(context.Port.State),
+		Config:        models.NullString(context.Port.Config),
+		Features:      models.NullString(context.Port.Features),
 		InterfaceName: context.Port.Name,
 		Interface:     context.Port.Number,
 	}

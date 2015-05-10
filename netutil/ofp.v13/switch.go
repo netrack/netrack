@@ -27,8 +27,11 @@ func init() {
 
 func SwitchPort(port ofp.Port) *mech.SwitchPort {
 	return &mech.SwitchPort{
-		Name:   strings.TrimRight(string(port.Name), "\u0000"),
-		Number: uint32(port.PortNo),
+		Name:     strings.TrimRight(string(port.Name), "\u0000"),
+		Number:   uint32(port.PortNo),
+		Config:   port.Config.String(),
+		State:    port.State.String(),
+		Features: port.Curr.String(),
 	}
 }
 

@@ -31,6 +31,9 @@ type ARPMechanism struct {
 	// Handle request based on cookie value.
 	cookies *of.CookieFilter
 
+	// Stores registered handlers to delete them later.
+	filter *of.ServeFilter
+
 	// ARP table
 	neighTable *mechutil.NeighTable
 
@@ -43,6 +46,7 @@ type ARPMechanism struct {
 
 func NewARPMechanism() mech.NetworkMechanism {
 	return &ARPMechanism{
+		filter:     of.NewServeFilter(),
 		cookies:    of.NewCookieFilter(),
 		requests:   make(map[string][]chan bool),
 		neighTable: mechutil.NewNeighTable(),
@@ -86,6 +90,14 @@ func (m *ARPMechanism) releaseRequest(nladdr mech.NetworkAddr) {
 	delete(m.requests, nladdr.String())
 }
 
+func (m *ARPMechanism) Name() string {
+	return ARPMechanismName
+}
+
+func (m *ARPMechanism) Description() string {
+	return "MISSING DESCRIPTION!"
+}
+
 // Enable implements Mechanism interface
 func (m *ARPMechanism) Enable(c *mech.MechanismContext) {
 	m.BaseMechanism.Enable(c)
@@ -93,11 +105,11 @@ func (m *ARPMechanism) Enable(c *mech.MechanismContext) {
 	// Register resolve function by function address.
 	m.C.Func.RegisterFunc((*ARPMechanism).Lookup, resolveFuncWrapper)
 
+	m.filter.Mux = m.C.Mux
 	// Handle incoming ARP requests.
-	m.C.Mux.HandleFunc(of.T_PACKET_IN, m.packetInHandler)
-
+	m.filter.HandleFunc(of.T_PACKET_IN, m.packetInHandler)
 	// Handle removed flows notifications
-	m.C.Mux.HandleFunc(of.T_FLOW_REMOVED, m.flowRemovedHandler)
+	m.filter.HandleFunc(of.T_FLOW_REMOVED, m.flowRemovedHandler)
 
 	log.InfoLog("arp/ENABLE_HOOK", "Mechanism ARP enabled")
 }
@@ -124,7 +136,7 @@ func (m *ARPMechanism) Activate() {
 
 	// Match packets of ARP protocol.
 	match := ofp.Match{ofp.MT_OXM, []ofp.OXM{
-		ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_ETH_TYPE, of.Bytes(iana.ETHT_ARP), nil},
+		ofputil.EthType(uint16(iana.ETHT_ARP), nil),
 	}}
 
 	// Move all packets to allocated matching table for ARP packets.
@@ -160,8 +172,34 @@ func (m *ARPMechanism) Activate() {
 	}
 }
 
+// Disable implements Mechanism interface.
 func (m *ARPMechanism) Disable() {
 	m.BaseMechanism.Disable()
+
+	// Remove installed handlers
+	m.filter.Unhandle()
+
+	// Match packets of ARP protocol.
+	match := ofp.Match{ofp.MT_OXM, []ofp.OXM{
+		ofputil.EthType(uint16(iana.ETHT_ARP), nil),
+	}}
+
+	err := of.Send(m.C.Switch.Conn(),
+		// Flush installed flows
+		ofputil.TableFlush(ofp.Table(m.tableNo)),
+		// Flush redirect flow
+		ofputil.FlowFlush(0, match),
+	)
+
+	// Release acquired table
+	m.C.Switch.ReleaseTable(m.tableNo)
+
+	if err != nil {
+		log.ErrorLog("arp/DISABLE_HOOK",
+			"Failed to send requests: ", err)
+	}
+
+	log.InfoLog("arp/DISABLE_HOOK", "Mechanism ARP disabled")
 }
 
 func (m *ARPMechanism) CreateNetworkPreCommit(context *mech.NetworkContext) error {

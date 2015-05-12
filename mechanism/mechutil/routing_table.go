@@ -3,7 +3,6 @@ package mechutil
 import (
 	"bytes"
 	"errors"
-	//"sort"
 	"sync"
 	"time"
 
@@ -43,7 +42,7 @@ func (e *RouteEntry) Equal(entry *RouteEntry) bool {
 		return false
 	}
 
-	if !bytes.Equal(e.Network.Mask(), entry.Network.Mask()) {
+	if !bytes.Equal(e.Network.Mask().Bytes(), entry.Network.Mask().Bytes()) {
 		return false
 	}
 
@@ -67,10 +66,15 @@ func (t *RoutingTable) Populate(entry RouteEntry) error {
 	t.lock.Lock()
 	defer t.lock.Unlock()
 
+	distance, err := routeToDistance(entry.Type)
+	if err != nil {
+		return err
+	}
+
 	entry.Timestamp = time.Now()
+	entry.Distance = distance
 
 	t.routes = append(t.routes, entry)
-	//sort.Sort(t)
 
 	return nil
 }
@@ -95,39 +99,32 @@ func (t *RoutingTable) Lookup(nladdr mech.NetworkAddr) (RouteEntry, bool) {
 	t.lock.RLock()
 	defer t.lock.RUnlock()
 
+	var candidate *RouteEntry
+
 	for _, entry := range t.routes {
 		if entry.Network.Contains(nladdr) {
-			return entry, true
+			e := entry
+
+			if candidate == nil {
+				candidate = &e
+				continue
+			}
+
+			if candidate.Network.Mask().Len() < entry.Network.Mask().Len() {
+				candidate = &e
+				continue
+			}
+
+			if candidate.Distance > entry.Distance {
+				candidate = &e
+				continue
+			}
 		}
 	}
 
-	return RouteEntry{}, false
-}
-
-func (t *RoutingTable) Len() int {
-	return len(t.routes)
-}
-
-func (t *RoutingTable) Less(i, j int) bool {
-	routei, routej := t.routes[i], t.routes[j]
-
-	// That is dumb, but okay for the begining
-	if routej.Network.Contains(routei.Network) {
-		return true
+	if candidate == nil {
+		return RouteEntry{}, false
 	}
 
-	if routei.Distance < routej.Distance {
-		return true
-	}
-
-	// Compare metric
-	if routei.Metric < routej.Metric {
-		return true
-	}
-
-	return false
-}
-
-func (t *RoutingTable) Swap(i, j int) {
-	t.routes[i], t.routes[j] = t.routes[j], t.routes[i]
+	return *candidate, true
 }

@@ -39,6 +39,15 @@ var (
 		"NetworkManager: network driver not intialized")
 )
 
+// NetworkMastk represetns a L3 address mask.
+type NetworkMask interface {
+	// Length of the network mask
+	Len() int
+
+	// Bytes representation of the network mask
+	Bytes() []byte
+}
+
 // NetworkAddr represents a L3 address.
 type NetworkAddr interface {
 	// String returns string form of address.
@@ -51,7 +60,7 @@ type NetworkAddr interface {
 	Bytes() []byte
 
 	// Mask return network layer address mask.
-	Mask() []byte
+	Mask() NetworkMask
 }
 
 // NetworkPort represents network layer

@@ -8,6 +8,15 @@ type Link struct {
 	// Link layer address data
 	Addr nullString `json:"address"`
 
+	// Port state
+	State nullString `json:"state"`
+
+	// Port configuration
+	Config nullString `json:"config"`
+
+	// Port features
+	Features nullString `json:"features"`
+
 	// Switch port number.
 	Interface uint32 `json:"interface,omitempty"`
 

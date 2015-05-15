@@ -59,7 +59,7 @@ type LinkPort struct {
 	// Link layer address string.
 	Addr string `json:"address"`
 
-	// Switch port number
+	// Switch port number.
 	Port uint32 `json:"port"`
 }
 

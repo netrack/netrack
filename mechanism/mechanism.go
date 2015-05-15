@@ -2,7 +2,6 @@ package mech
 
 import (
 	"errors"
-	"reflect"
 	"sync/atomic"
 
 	"github.com/netrack/netrack/database"
@@ -17,21 +16,6 @@ var (
 	// not registered mechanism operations.
 	ErrMechanismNotRegistered = errors.New(
 		"MechanismManager: mechanism not registered")
-
-	// ErrMechanismAlreadyEnabled is returned on enabling
-	// of already enabled mechanism.
-	ErrMechanismAlreadyEnabled = errors.New(
-		"MechanismManager: mechanism already enabled")
-
-	// ErrMechanismAlreadyActivated is returned on
-	// activating of already activated mechanism.
-	ErrMechanismAlreadyActivated = errors.New(
-		"MechanismManager: mechanism already activated")
-
-	// ErrMechanismAlreadyDisabled is returned on
-	// disabling of already disabled mechanism.
-	ErrMechanismAlreadyDisabled = errors.New(
-		"MechanismManager: mechanism already disabled")
 )
 
 // Proto is protocol string alias
@@ -59,6 +43,12 @@ type MechanismContext struct {
 
 // Mechanism describes switch drivers
 type Mechanism interface {
+	// Name returns name of the mechanism
+	Name() string
+
+	// Description returns short string description
+	Description() string
+
 	// Enable performs mechanism initialization.
 	Enable(*MechanismContext)
 
@@ -110,6 +100,7 @@ func (m *BaseMechanism) Activated() bool {
 
 // Disable implements Mechanism interface.
 func (m *BaseMechanism) Disable() {
+	atomic.StoreInt64(&m.activated, 0)
 	atomic.StoreInt64(&m.enabled, 0)
 }
 
@@ -129,7 +120,10 @@ type MechanismMap interface {
 // mechanisms using drivers.
 type MechanismManager interface {
 	// Mechanism returns registered mechanism by specified name.
-	Mechanism(string, Mechanism) error
+	Mechanism(string) (Mechanism, error)
+
+	// MechanismList returns list of registered mechanisms.
+	MechanismList() []Mechanism
 
 	// Enable performs initialization of registered mechanisms.
 	Enable(*MechanismContext)
@@ -160,41 +154,27 @@ type BaseMechanismManager struct {
 	activated int64
 }
 
-func (m *BaseMechanismManager) Mechanism(name string, mech Mechanism) (err error) {
+func (m *BaseMechanismManager) Mechanism(name string) (Mechanism, error) {
 	mechanism, ok := m.Mechanisms.Get(name)
 	if !ok {
 		log.ErrorLog("mechanism/MECHANISM",
 			"Failed to find requested mechanism")
-		return ErrMechanismNotRegistered
+		return nil, ErrMechanismNotRegistered
 	}
 
-	defer func() {
-		recovered := recover()
-		if recovered == nil {
-			return
-		}
+	return mechanism, nil
+}
 
-		err = ErrMechanismNotRegistered
+func (m *BaseMechanismManager) MechanismList() []Mechanism {
+	var mechanisms []Mechanism
 
-		if recoveredErr, ok := recovered.(error); ok {
-			err = recoveredErr
-		}
-	}()
-
-	firstValue := reflect.ValueOf(mech)
-	// Receiver should be a pointer and can be changed.
-	if firstValue.Kind() != reflect.Ptr || !firstValue.Elem().CanSet() {
-		return ErrMechanismNotRegistered
+	add := func(name string, m Mechanism) bool {
+		mechanisms = append(mechanisms, m)
+		return true
 	}
 
-	secondValue := reflect.ValueOf(mechanism)
-	// Values shoud be the same type.
-	if firstValue.Type() != secondValue.Type() {
-		return ErrMechanismNotRegistered
-	}
-
-	firstValue.Elem().Set(secondValue.Elem())
-	return nil
+	m.Mechanisms.Iter(add)
+	return mechanisms
 }
 
 func (m *BaseMechanismManager) Context(model db.Model, context interface{}) error {
@@ -297,7 +277,7 @@ func (m *BaseMechanismManager) EnableByName(name string, c *MechanismContext) er
 	}
 
 	if mechanism.Enabled() {
-		return ErrMechanismAlreadyEnabled
+		return nil
 	}
 
 	atomic.CompareAndSwapInt64(&m.enabled, 0, 1)
@@ -329,7 +309,7 @@ func (m *BaseMechanismManager) ActivateByName(name string) error {
 	}
 
 	if mechanism.Activated() {
-		return ErrMechanismAlreadyActivated
+		return nil
 	}
 
 	atomic.CompareAndSwapInt64(&m.activated, 0, 1)
@@ -343,6 +323,9 @@ func (m *BaseMechanismManager) Activated() bool {
 
 // Disable disables all registered mechanisms
 func (m *BaseMechanismManager) Disable() {
+	atomic.StoreInt64(&m.activated, 0)
+	atomic.StoreInt64(&m.enabled, 0)
+
 	m.Mechanisms.Iter(func(_ string, mechanism Mechanism) bool {
 		mechanism.Disable()
 		return true
@@ -359,9 +342,12 @@ func (m *BaseMechanismManager) DisableByName(name string) error {
 	}
 
 	if !mechanism.Enabled() {
-		return ErrMechanismAlreadyDisabled
+		return nil
 	}
 
 	mechanism.Disable()
+	atomic.StoreInt64(&m.activated, 0)
+	atomic.StoreInt64(&m.enabled, 0)
+
 	return nil
 }

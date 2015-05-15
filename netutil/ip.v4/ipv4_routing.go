@@ -36,6 +36,14 @@ func NewIPv4Routing() mech.RoutingMechanism {
 	}
 }
 
+func (m *IPv4Routing) Name() string {
+	return IPv4RoutingName
+}
+
+func (m *IPv4Routing) Description() string {
+	return "MISSING DESCRIPNION!"
+}
+
 // Enable implements Mechanism interface
 func (m *IPv4Routing) Enable(c *mech.MechanismContext) {
 	m.BaseRoutingMechanism.Enable(c)
@@ -112,8 +120,8 @@ func (m *IPv4Routing) UpdateRoute(context *mech.RoutingContext) error {
 
 	// Match IPv4 packets of specified route.
 	match := ofp.Match{ofp.MT_OXM, []ofp.OXM{
-		ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_ETH_TYPE, of.Bytes(iana.ETHT_IPV4), nil},
-		ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_IPV4_DST, context.Network.Bytes(), context.Network.Mask()},
+		ofputil.EthType(uint16(iana.ETHT_IPV4), nil),
+		ofputil.IPv4DstAddr(context.Network.Bytes(), context.Network.Mask().Bytes()),
 	}}
 
 	// Send all such packets to controller.
@@ -179,8 +187,8 @@ func (m *IPv4Routing) DeleteRoute(context *mech.RoutingContext) error {
 
 	// Match IPv4 packets of specified route.
 	match := ofp.Match{ofp.MT_OXM, []ofp.OXM{
-		ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_ETH_TYPE, of.Bytes(iana.ETHT_IPV4), nil},
-		ofp.OXM{ofp.XMC_OPENFLOW_BASIC, ofp.XMT_OFB_IPV4_DST, context.Network.Bytes(), context.Network.Mask()},
+		ofputil.EthType(uint16(iana.ETHT_IPV4), nil),
+		ofputil.IPv4DstAddr(context.Network.Bytes(), context.Network.Mask().Bytes()),
 	}}
 
 	err := of.Send(m.C.Switch.Conn(),
@@ -266,11 +274,17 @@ func (m *IPv4Routing) ipPacketHandler(rw of.ResponseWriter, r *of.Request) {
 		return
 	}
 
-	var arpMech ARPMechanism
-	err = network.Mechanism(ARPMechanismName, &arpMech)
+	nmech, err := network.Mechanism(ARPMechanismName)
 	if err != nil {
 		log.ErrorLog("ipv4_routing/IP_PACKET_HANDLER",
 			"ARP network mechanism is not found: ", err)
+		return
+	}
+
+	arpMech, ok := nmech.(*ARPMechanism)
+	if !ok {
+		log.ErrorLog("ipv4_routing/IP_PACKET_HANDLER",
+			"Failed to cast mechanism to arp mechanism type")
 		return
 	}
 

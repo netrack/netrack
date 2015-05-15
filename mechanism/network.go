@@ -24,7 +24,7 @@ func init() {
 		return NewNetworkMechanismManager()
 	})
 
-	RegisterLinkMechanism("inet", constructor)
+	RegisterLinkMechanism("networking", constructor)
 }
 
 var (
@@ -39,6 +39,15 @@ var (
 		"NetworkManager: network driver not intialized")
 )
 
+// NetworkMastk represetns a L3 address mask.
+type NetworkMask interface {
+	// Length of the network mask
+	Len() int
+
+	// Bytes representation of the network mask
+	Bytes() []byte
+}
+
 // NetworkAddr represents a L3 address.
 type NetworkAddr interface {
 	// String returns string form of address.
@@ -51,7 +60,7 @@ type NetworkAddr interface {
 	Bytes() []byte
 
 	// Mask return network layer address mask.
-	Mask() []byte
+	Mask() NetworkMask
 }
 
 // NetworkPort represents network layer
@@ -459,6 +468,14 @@ func NewNetworkMechanismManager() *networkMechanismManager {
 	return &networkMechanismManager{
 		drivers: NetworkDrivers(),
 	}
+}
+
+func (m *networkMechanismManager) Name() string {
+	return "networking"
+}
+
+func (m *networkMechanismManager) Description() string {
+	return "MISSING DESCRIPTION!"
 }
 
 func (m *networkMechanismManager) Enable(c *MechanismContext) {

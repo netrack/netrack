@@ -52,10 +52,10 @@ func NewNetworkHandler() mech.HTTPDriver {
 func (h *NetworkHandler) Enable(c *mech.HTTPDriverContext) {
 	h.BaseHTTPDriver.Enable(c)
 
-	h.C.Mux.HandleFunc("GET", "/v1/datapaths/{dpid}/interfaces/networks", h.indexHandler)
-	h.C.Mux.HandleFunc("GET", "/v1/datapaths/{dpid}/interfaces/{interface}/network", h.showHandler)
-	h.C.Mux.HandleFunc("PUT", "/v1/datapaths/{dpid}/interfaces/{interface}/network", h.createHandler)
-	h.C.Mux.HandleFunc("DELETE", "/v1/datapaths/{dpid}/interfaces/{interface}/network", h.destroyHandler)
+	h.C.Mux.HandleFunc("GET", "/v1/datapaths/{dpid}/network/interfaces", h.indexHandler)
+	h.C.Mux.HandleFunc("GET", "/v1/datapaths/{dpid}/network/interfaces/{interface}", h.showHandler)
+	h.C.Mux.HandleFunc("PUT", "/v1/datapaths/{dpid}/network/interfaces/{interface}", h.createHandler)
+	h.C.Mux.HandleFunc("DELETE", "/v1/datapaths/{dpid}/network/interfaces/{interface}", h.destroyHandler)
 
 	log.InfoLog("network_handlers/ENABLE_HOOK",
 		"Network layer handlers enabled")

@@ -26,6 +26,19 @@ func init() {
 	mech.RegisterNetworkDriver(IPv4DriverName, constructor)
 }
 
+type IPv4Mask struct {
+	mask net.IPMask
+}
+
+func (m *IPv4Mask) Len() int {
+	ones, _ := m.mask.Size()
+	return ones
+}
+
+func (m *IPv4Mask) Bytes() []byte {
+	return []byte(m.mask)
+}
+
 type IPv4Addr struct {
 	ip   net.IP
 	mask net.IPMask
@@ -45,8 +58,8 @@ func (a *IPv4Addr) Bytes() []byte {
 	return []byte(a.ip.To4())
 }
 
-func (a *IPv4Addr) Mask() []byte {
-	return []byte(a.mask)
+func (a *IPv4Addr) Mask() mech.NetworkMask {
+	return &IPv4Mask{a.mask}
 }
 
 type IPv4Driver struct {

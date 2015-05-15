@@ -19,7 +19,7 @@ NETRACK_PKG        += httputil
 NETRACK_PKG        += httprest/format httprest/v1
 NETRACK_PKG        += ioutil
 NETRACK_PKG        += logging
-NETRACK_PKG        += mechanism mechanism/rpc
+NETRACK_PKG        += mechanism mechanism/injector mechanism/mechutil mechanism/rpc
 NETRACK_PKG        += netutil/drivers netutil/ip.v4 netutil/ofp.v13
 
 # Netrack source code

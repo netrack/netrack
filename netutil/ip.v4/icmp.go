@@ -41,6 +41,14 @@ func NewICMPMechanism() mech.NetworkMechanism {
 	}
 }
 
+func (m *ICMPMechanism) Name() string {
+	return ICMPMechanismName
+}
+
+func (m *ICMPMechanism) Description() string {
+	return "MISSING DESCRIPTION!"
+}
+
 func (m *ICMPMechanism) Enable(c *mech.MechanismContext) {
 	m.BaseNetworkMechanism.Enable(c)
 

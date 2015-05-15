@@ -7,11 +7,20 @@ import (
 
 // SwitchPort describes switch ports.
 type SwitchPort struct {
-	// Name returns name of the switch port.
+	// Name of the switch port.
 	Name string
 
-	// Number returns number of the port in a switch.
+	// Number of the port in a switch.
 	Number uint32
+
+	// Switch port configuration
+	Config string
+
+	// Port features
+	Features string
+
+	// Port state
+	State string
 }
 
 // Switch describes instance of openflow device

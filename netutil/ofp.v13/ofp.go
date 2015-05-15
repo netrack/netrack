@@ -21,6 +21,14 @@ func NewOFPMechanism() mech.ExtensionMechanism {
 	return &OFPMechanism{}
 }
 
+func (m *OFPMechanism) Name() string {
+	return "ofp-1.3"
+}
+
+func (m *OFPMechanism) Description() string {
+	return "MISSING DESCRIPTION!"
+}
+
 // Enable implements Mechanism interface.
 func (m *OFPMechanism) Enable(c *mech.MechanismContext) {
 	m.BaseMechanism.Enable(c)
@@ -29,11 +37,6 @@ func (m *OFPMechanism) Enable(c *mech.MechanismContext) {
 
 	log.InfoLog("ofp/ENABLE_HOOK",
 		"Mechanism ofp1.3 enabled")
-}
-
-// Activate implements Mechanism interface.
-func (m *OFPMechanism) Activate() {
-	m.BaseMechanism.Activate()
 }
 
 func (m *OFPMechanism) echoHandler(rw of.ResponseWriter, r *of.Request) {

@@ -16,6 +16,11 @@ type Config struct {
 
 	APIEndpoint string `toml:"api_endpoint"`
 
+	TLSEnable             bool   `toml:"tls_enable"`
+	TLSInsecureSkipVerify bool   `toml:"tls_insecure_skip_verify"`
+	TLSCertFile           string `toml:"tls_x509_cert_file"`
+	TLSKeyFile            string `toml:"tls_x509_key_file"`
+
 	Database map[string]DatabaseConfig `toml:"database"`
 }
 
@@ -33,8 +38,8 @@ type DatabaseConfig struct {
 	SSLMode  string `toml:"sslmode"`
 }
 
-func LoadFile(path string) (*Config, error) {
+func LoadFile(configPath string) (*Config, error) {
 	var config Config
-	_, err := toml.DecodeFile(path, &config)
+	_, err := toml.DecodeFile(configPath, &config)
 	return &config, err
 }

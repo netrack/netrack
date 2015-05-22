@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"crypto/tls"
 	"net/http"
 	"net/url"
 
@@ -50,7 +51,28 @@ func (c *C) initializeSwitches() {
 	log.DebugLogf("controller/INITIALIZE_SWITCHES",
 		"Starting serving OFP at: %s://%s", u.Scheme, u.Host)
 
-	l, err := of.Listen(u.Scheme, u.Host)
+	var l *of.Listener
+
+	if c.Config.TLSEnable {
+		log.DebugLog("controller/LISTEN_OPENFLOW",
+			"Starting serving with TLS support")
+
+		cert, err := tls.LoadX509KeyPair(c.Config.TLSCertFile, c.Config.TLSKeyFile)
+		if err != nil {
+			log.FatalLog("controller/LOAD_X509_CERTIFICATE",
+				"Failed to load cerificates: ", err)
+		}
+
+		config := &tls.Config{
+			Certificates:       []tls.Certificate{cert},
+			InsecureSkipVerify: c.Config.TLSInsecureSkipVerify,
+		}
+
+		l, err = of.ListenTLS(u.Scheme, u.Host, config)
+	} else {
+		l, err = of.Listen(u.Scheme, u.Host)
+	}
+
 	if err != nil {
 		log.FatalLog("controller/LISTEN_AND_SERVE_OFP_ERR",
 			"Failed to serve OFP: ", err)

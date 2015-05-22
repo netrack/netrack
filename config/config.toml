@@ -9,6 +9,19 @@ openflow_endpoint = "tcp://0.0.0.0:6633"
 # Bind HTTP server
 #api_endpoint = "tcp://0.0.0.0:8080"
 api_endpoint = "tcp://127.0.0.1:8080"
+#
+# Enable TLS support
+tls_enable = true
+#
+# Controls whether a client verifies the
+# server's certificate chain and host name
+tls_insecure_skip_verify = true
+#
+# TLS public file
+tls_x509_cert_file = "config/tls/cert.pem"
+#
+# TLS private file
+tls_x509_key_file = "config/tls/key.pem"
 
 # Netrack database configuration
 [database.development]

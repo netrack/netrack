@@ -1,8 +1,0 @@
-# TOML parser and encoder for Go with reflection.
-gom 'github.com/BurntSushi/toml'
-
-# Pure Go Postgres driver.
-gom 'github.com/lib/pq'
-
-# SQL migration tool.
-gom 'github.com/rubenv/sql-migrate'

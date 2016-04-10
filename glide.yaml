@@ -1,0 +1,16 @@
+package: .
+import:
+# TOML parser and encoder for Go with reflection.
+- package: github.com/BurntSushi/toml
+
+# Pure Go Postgres driver.
+- package: github.com/lib/pq
+- package: github.com/netrack/net
+  subpackages:
+  - iana
+  - l2
+  - l3
+- package: github.com/netrack/openflow
+  subpackages:
+  - ofp.v13
+  - ofp.v13/ofputil

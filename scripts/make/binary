@@ -6,7 +6,7 @@ BINARY_NAME="netrack"
 BINARY_VERSION="${VERSION}~git@${REVISION}"
 
 # Build binary with embedded version string
-GOFLAGS="-X main.version ${BINARY_VERSION}"
+GOFLAGS="-X main.version=${BINARY_VERSION}"
 GOTAGS=development
 
 # Build executable

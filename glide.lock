@@ -1,43 +1,23 @@
-hash: cdd0d3386ae54eb56f3a6074ebcacc58d00b2a68bade679f55a4219b6293d6c5
-updated: 2016-04-10T21:19:35.495137514+03:00
+hash: 8348afcb421377f33e0a4c7764779a061a7e8f4ec8a0ce026fdfbb29433b147e
+updated: 2017-01-05T11:13:15.547858987+03:00
 imports:
 - name: github.com/BurntSushi/toml
-  version: bbd5bb678321a0d6e58f1099321dfa73391c1b6f
+  version: 99064174e013895bbd9b025c31100bd1d9b590ca
 - name: github.com/lib/pq
-  version: 3cd0097429be7d611bb644ef85b42bfb102ceea4
+  version: 8df6253d1317616f36b0c3740eb30c239a7372cb
   subpackages:
   - oid
 - name: github.com/netrack/net
   version: 3196ad20a679427d2ce5c7185a5ded2dd363419c
   subpackages:
+  - encoding/binary
   - iana
   - l2
   - l3
-  - encoding/binary
-- name: github.com/netrack/netrack
-  version: 01be0692cf9ac81acf90336dae818e317cddabb3
-  subpackages:
-  - config
-  - controller
-  - logging
-  - config/environment
-  - httprest/v1
-  - netutil/drivers
-  - netutil/ip.v4
-  - netutil/ofp.v13
-  - database
-  - httputil
-  - mechanism
-  - httprest/format
-  - httprest/v1/models
-  - ioutil
-  - mechanism/injector
-  - mechanism/rpc
-  - mechanism/mechutil
 - name: github.com/netrack/openflow
-  version: 7b01415cbc0309a3174b4e20cf1c14d3c2f7f63c
+  version: 9ff982dddc0e30abf6c6def740870f9d73d8a132
   subpackages:
+  - encoding/binary
   - ofp.v13
   - ofp.v13/ofputil
-  - encoding/binary
-devImports: []
+testImports: []
